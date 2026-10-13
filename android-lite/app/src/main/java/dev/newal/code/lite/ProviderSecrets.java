@@ -9,7 +9,7 @@ final class ProviderSecrets {
 
     private static String provider(JSONObject a) {
         String p = a.optString("provider", "");
-        if (!("groq".equals(p) || "gemini".equals(p) || "openrouter".equals(p) || "nvidia".equals(p) || "crawl4ai".equals(p))) {
+        if (!("groq".equals(p) || "gemini".equals(p) || "openrouter".equals(p) || "nvidia".equals(p) || "zhipu".equals(p) || "mistral".equals(p) || "crawl4ai".equals(p))) {
             throw new IllegalArgumentException("Unknown free AI provider");
         }
         return p;
