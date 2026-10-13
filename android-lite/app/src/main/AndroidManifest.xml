@@ -11,6 +11,7 @@
     <!-- The agent's phone tool: alarms and timers; NewAl Code in Termux (the Termux link). -->
     <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
     <uses-permission android:name="com.termux.permission.RUN_COMMAND" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- GGUF files the user already has (Download, Documents...): Android 11 and up ask for "All files access",
          older Android for the storage permission. Only when the user turns it on from the Models page. -->
     <uses-permission
