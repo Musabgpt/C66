@@ -127,6 +127,37 @@ class ExtensionTests(unittest.TestCase):
         from . import dev_ports
         self.assertNotIn(8780, dev_ports.open_ports(extra=(8780,)))
 
+    # ---------------------------------------------------------------- smarter and faster
+    def test_trim_shortens_only_earlier_turns_tool_results(self):
+        from . import smart
+        big = "x" * 5000
+        msgs = [{"role": "user", "content": "one"}, {"role": "tool", "tool_call_id": "a", "content": big},
+                {"role": "user", "content": "two"}, {"role": "tool", "tool_call_id": "b", "content": big}]
+        out = smart.trim(msgs)
+        self.assertLess(len(out[1]["content"]), 1500)
+        self.assertIn("omitted", out[1]["content"])
+        self.assertEqual(out[3]["content"], big)                       # the current turn stays whole
+        self.assertEqual(msgs[1]["content"], big)                      # the thread itself is unchanged
+
+    def test_reviewer_runs_once_and_reports_bugs(self):
+        from . import smart
+        self.write("m.py", "def add(a, b):\n    return a + b\n")
+        a = self.agent()
+        ctx = self.edit(a, 1, "m.py", "return a + b", "return a - b\n\n\ndef sub(a, b):\n    return a + b")
+        calls = []
+
+        def chat(messages, **kw):
+            calls.append(messages)
+            return SimpleNamespace(content="m.py:5 - sub adds instead of subtracting - use a - b")
+        a.client = SimpleNamespace(chat=chat, on_device=False)
+        found = smart.review(a, ctx)
+        self.assertIn("sub adds", found)
+        self.assertIn("return a - b", calls[0][0]["content"])           # the diff was reviewed
+        self.assertEqual(smart.review(a, ctx), "")                      # once per turn
+        ctx2 = self.edit(a, 2, "m.py", "def sub", "def subtract")
+        a.client = SimpleNamespace(chat=lambda m, **kw: SimpleNamespace(content="LGTM"), on_device=False)
+        self.assertEqual(smart.review(a, ctx2), "")                     # small or approved: nothing to fix
+
 
 if __name__ == "__main__":
     unittest.main()
