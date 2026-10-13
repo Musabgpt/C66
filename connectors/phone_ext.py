@@ -292,3 +292,22 @@ def finished(agent, answer, seconds, error="", changes=()):
         except Exception:  # noqa: BLE001 - a notification is a courtesy
             pass
     threading.Thread(target=send, name="musab-finish-notify", daemon=True).start()
+
+
+def approval_waiting(req, answered, pending=None, delay=15):
+    """A tool call has waited `delay` seconds for the user's approval (often a background agent, or a long turn the
+    user walked away from): Android says so, when the app is not on screen. Nothing is sent once it is answered."""
+    if not phone_ready():
+        return
+
+    def run():
+        if answered.wait(delay) or (pending is not None and not pending()):
+            return
+        args = req.get("args") or {}
+        what = str(args.get("command") or args.get("path") or args.get("url") or args.get("action") or "")[:160]
+        try:
+            _phone().call("notify", timeout=10, title="MusabAI ينتظر موافقتك",
+                          text=("%s: %s" % (req.get("tool") or "tool", what)).strip(": "), only_background=True)
+        except Exception:  # noqa: BLE001 - a notification is a courtesy
+            pass
+    threading.Thread(target=run, name="musab-approval-notify", daemon=True).start()

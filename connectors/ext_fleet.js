@@ -116,7 +116,7 @@
       });
     };
     clearInterval(o._timer);
-    o._timer = setInterval(() => { if (!o.hidden) render(); }, 5000);
+    o._timer = setInterval(() => { if (!o.hidden && !document.hidden) render(); }, 5000);
     render();
   }
 
@@ -163,7 +163,7 @@
     };
     body.querySelector("form").onsubmit = ev => { ev.preventDefault(); render(); };
     clearInterval(o._timer);
-    o._timer = setInterval(() => { if (!o.hidden) render(); }, 20000);
+    o._timer = setInterval(() => { if (!o.hidden && !document.hidden) render(); }, 20000);
     render();
   }
 
@@ -215,7 +215,7 @@
   function addButtons() {
     const anchor = $("#musab-live-btn") || $("#musab-vscode") || $("#musab-modes");
     if (!anchor || $("#musab-agents-btn")) return;
-    const items = [["musab-agents-btn", "🤖", t("Agents", "الوكلاء"), openAgents], ["musab-gh-btn", "🐙", "GitHub", openGitHub]];
+    const items = [["musab-agents-btn", "🤖", "Agents", openAgents], ["musab-gh-btn", "🐙", "GitHub", openGitHub]];
     let after = anchor;
     items.forEach(([id, icon, label, fn]) => {
       const b = document.createElement("button");
@@ -223,7 +223,9 @@
       b.id = id;
       b.className = "musab-vscode";
       b.title = label;
-      b.textContent = icon + " " + label;
+      b.setAttribute("aria-label", label);
+      // the label is its own text node, so the Arabic interface translates it as it draws it (i18n.js)
+      b.innerHTML = '<span class="mb-ic" aria-hidden="true">' + icon + '</span><span class="mb-tx">' + label + "</span>";
       b.onclick = fn;
       after.after(b);
       after = b;
