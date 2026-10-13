@@ -50,6 +50,25 @@
     if (!id) return;
     try { await call("/api/sessions/" + encodeURIComponent(id) + "/send", { text: "/mode " + value }); } catch (_) { /* no thread yet */ }
   }
+  // Ask = read-only for the thread; leaving Ask gives back the thread's own mode (Full access stays Full access).
+  async function rememberMode() {
+    const id = sid();
+    if (!id) return;
+    try {
+      const d = await call("/api/sessions/" + encodeURIComponent(id));
+      const m = d.meta && d.meta.mode;
+      if (m && m !== "read-only") store.set("musab.agentMode", m);
+    } catch (_) { /* keep the last one */ }
+  }
+  // A thread opened or created while Ask is on is read-only too (the pill and the thread never disagree).
+  let lastSid = "";
+  setInterval(() => {
+    const id = sid();
+    if (id && id !== lastSid) {
+      lastSid = id;
+      if (mode === "ask") rememberMode().then(() => setSessionMode("read-only"));
+    }
+  }, 1200);
   function renderModes() {
     let bar = $("#musab-modes");
     const foot = $(".composer-foot");
@@ -61,13 +80,13 @@
       foot.insertBefore(bar, foot.firstChild);
     }
     bar.innerHTML = MODES.map(m => '<button type="button" data-mode="' + m[0] + '" title="' + esc(m[3]) + '" class="' +
-      (m[0] === mode ? "on" : "") + '">' + esc(t(m[1], m[2])) + "</button>").join("");
+      (m[0] === mode ? "on" : "") + '">' + esc(m[1]) + "</button>").join("");   // i18n.js translates it as drawn
     bar.querySelectorAll("button").forEach(b => b.onclick = async () => {
       const prev = mode;
       mode = b.dataset.mode;
       store.set("musab.mode", mode);
       renderModes();
-      if (mode === "ask") await setSessionMode("read-only");
+      if (mode === "ask") { await rememberMode(); await setSessionMode("read-only"); }
       else if (prev === "ask") await setSessionMode(store.get("musab.agentMode", "auto-edit"));
       note(t(MODES.find(m => m[0] === mode)[3], mode === "agent" ? "يعدّل الملفات ويشغّل الأوامر" : mode === "plan" ? "يستكشف ثم يقترح خطة قبل أي تغيير" : "يجيب ويقرأ الكود دون تغيير"));
     });
@@ -251,7 +270,8 @@
     b.id = "musab-vscode";
     b.className = "musab-vscode";
     b.title = "VS Code";
-    b.textContent = "VS Code";
+    b.setAttribute("aria-label", "VS Code");
+    b.innerHTML = '<span class="mb-ic" aria-hidden="true">⌘</span><span class="mb-tx">VS Code</span>';
     b.onclick = openVSCode;
     bar.after(b);
   }
