@@ -220,12 +220,19 @@
     const url = "http://127.0.0.1:" + VSCODE_PORT + "/" + (root && root.indexOf("com.termux") >= 0 ? "?folder=" + encodeURIComponent(root) : "");
     if (st.up) { location.href = url; return; }
     if (!(window.NewAlPhone && NewAlPhone.termuxRunVisible)) { note(t("VS Code needs Termux on the phone", "يحتاج VS Code إلى Termux على الهاتف")); return; }
-    const r = NewAlPhone.termuxRunVisible("newal-vscode start");
-    if (r !== "started") {
-      note(t("Connect Termux first (Settings › This phone), then try again", "اربط Termux أولاً (الإعدادات › هذا الهاتف) ثم أعد المحاولة"));
-      return;
+    let command = "";
+    try { command = (await call("/api/vscode/link")).command; } catch (e) { note(e.message); return; }
+    const ph = JSON.parse(NewAlPhone.status() || "{}").termux || {};
+    if (!ph.installed) { NewAlPhone.termuxSetup(""); return; }
+    if (!ph.allowed && NewAlPhone.termuxAllow) {
+      NewAlPhone.termuxAllow();
+      for (let i = 0; i < 20 && !(JSON.parse(NewAlPhone.status() || "{}").termux || {}).allowed; i++) await new Promise(r => setTimeout(r, 1000));
     }
-    note(t("Starting VS Code in Termux… the first time installs it (a few minutes)", "يتم تشغيل VS Code في Termux… أول مرة يتم تثبيته (بضع دقائق)"));
+    if (NewAlPhone.termuxRunVisible(command) !== "started") {
+      // Termux does not take commands from apps yet: one paste (it also turns that on for next time).
+      NewAlPhone.termuxSetup(command);
+      note(t("In Termux: paste and press Enter", "في Termux: الصق واضغط Enter"));
+    } else note(t("Starting VS Code in Termux… the first time installs it (a few minutes)", "يتم تشغيل VS Code في Termux… أول مرة يتم تثبيته (بضع دقائق)"));
     const started = Date.now();
     const timer = setInterval(async () => {
       try {
