@@ -43,7 +43,15 @@ case "${1:-start}" in
     fi
     command -v termux-wake-lock > /dev/null 2>&1 && termux-wake-lock
     mkdir -p "$HOME/projects" "$HOME/.newal-code"
-    nohup code-server --auth none --bind-addr "127.0.0.1:$PORT" --disable-telemetry --disable-update-check "$HOME/projects" >> "$LOG" 2>&1 &
+    # Its own session, so it keeps running when this Termux window closes.
+    set -- code-server --auth none --bind-addr "127.0.0.1:$PORT" --disable-telemetry --disable-update-check "$HOME/projects"
+    if command -v setsid > /dev/null 2>&1; then
+      setsid nohup "$@" < /dev/null >> "$LOG" 2>&1 &
+    elif command -v python > /dev/null 2>&1; then
+      python -c 'import subprocess, sys; subprocess.Popen(sys.argv[2:], stdin=subprocess.DEVNULL, stdout=open(sys.argv[1], "ab"), stderr=subprocess.STDOUT, start_new_session=True)' "$LOG" "$@"
+    else
+      nohup "$@" < /dev/null >> "$LOG" 2>&1 &
+    fi
     for i in $(seq 1 90); do up && break; sleep 1; done
     if up; then echo "VS Code runs: go back to the app."; else echo "VS Code did not start: $LOG"; exit 1; fi ;;
   stop) pkill -f "code-server.*127.0.0.1:$PORT" && echo "stopped" ;;
