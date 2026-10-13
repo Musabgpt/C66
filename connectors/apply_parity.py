@@ -101,6 +101,12 @@ def apply(root):
             "            dirs[:] = []\n"
             "    return False\n\n\n"
             "def test_command(root):\n")
+    # Termux + GitHub in one tap (connectors/apply_links.py).
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("apply_links", src / "apply_links.py")
+    links = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(links)
+    links.apply(package, replace)
     print("claude parity applied")
 
 
