@@ -94,7 +94,7 @@ final class WebBridge {
         act.runOnUiThread(() -> {
             act.startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
             Toast.makeText(act, Build.VERSION.SDK_INT >= 33
-                    ? "Turn on NewAl Code here. If Android says \"Restricted setting\": App info > \u22ee > Allow "
+                    ? "Turn on NewAl Code here. If Android says \"Restricted setting\": App info > ⋮ > Allow "
                     + "restricted settings, then again"
                     : "Turn on NewAl Code here (under Downloaded or Installed apps)", Toast.LENGTH_LONG).show();
         });
@@ -129,6 +129,30 @@ final class WebBridge {
     @JavascriptInterface
     public void termuxAllow() {
         act.runOnUiThread(() -> act.requestPermissions(new String[] {Termux.PERMISSION}, 2));
+    }
+
+    /**
+     * The link in one tap: Termux runs the setup command in a session the user sees (it can ask for a GitHub sign-in
+     * there). Termux refuses it until allow-external-apps is on, which the first setup turns on; the page then falls
+     * back to termuxSetup (one paste).
+     */
+    @JavascriptInterface
+    public String termuxRunVisible(String command) {
+        if (command == null || !command.startsWith("curl -fsSL 'http://127.0.0.1:")) {
+            return "invalid";
+        }
+        if (!Termux.installed(act)) {
+            return "not installed";
+        }
+        if (!Termux.allowed(act)) {
+            return "not allowed";
+        }
+        try {
+            Termux.runVisible(act, command);
+            return "started";
+        } catch (Exception e) {
+            return String.valueOf(e.getMessage());
+        }
     }
 
     /** Starts NewAl Code in Termux (once it was set up there), without opening Termux. */
