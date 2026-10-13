@@ -21,7 +21,8 @@
   }
   window.addEventListener('focus', check);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) check(); });
-  timer = window.setInterval(check, 5000);
+  // In the background the app checks nothing (it checks again when shown); on screen, every 15 s is enough.
+  timer = window.setInterval(() => { if (!document.hidden) check(); }, 15000);
   window.addEventListener('pagehide', () => window.clearInterval(timer), {once: true});
   check();
 })();

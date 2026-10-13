@@ -24,3 +24,5 @@ def apply(src, package, replace):
             '"ambiguous and a wrong guess is costly, ask one short question first. On a phone: screen_look shows you the "\n'
             '    "screen (or an image) through a vision model; after building an Android app, test it with android_test_app "\n'
             '    "and fix crashes before saying it works.")')
+    replace(package / "service.py", "            self.approvals[key] = rec\n",
+            "            self.approvals[key] = rec\n        from . import phone_ext\n        phone_ext.approval_waiting(req, ev, lambda: key in self.approvals)\n")

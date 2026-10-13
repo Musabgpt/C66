@@ -1,7 +1,7 @@
 """Stable, packaged behavior profile adapted from the user's uploaded prompt."""
 from pathlib import Path
 
-MARKER = 'MusabAI behavior profile v9'
+MARKER = 'MusabAI behavior profile v10'
 PHONE_GUIDANCE = ("On this Android phone, the phone tool is a built-in local agent (not MCP): use screen for the "
                   "Accessibility UI tree, screenshot, tap/type/swipe, open_app, and install_apk (Android confirms "
                   "the install). notifications_read needs Notification Access. Record verified steps with "
@@ -58,7 +58,41 @@ def profile():
             path = dynamic
     except Exception:
         pass
-    return (MARKER + '\n\n' + BROWSER_GUIDANCE + '\n\n' + SEARCH_GUIDANCE + '\n\n' + DOCUMENT_GUIDANCE + '\n\n' + RAG_GUIDANCE + '\n\n' + ORCHESTRATION_GUIDANCE + '\n\n' + EXECUTION_GUIDANCE + '\n\n' + GIT_GUIDANCE + '\n\n' + OBSERVABILITY_GUIDANCE + '\n\n' + TASK_STATE_GUIDANCE + '\n\n' + TOOL_ARGUMENT_GUIDANCE + '\n\n' + path.read_text(encoding='utf-8').strip())
+    # v10: one focused core (agent_prompt.md). What each specialised tool is for lives in its own description,
+    # which reaches the model when the tool is loaded, instead of in every request.
+    return MARKER + '\n\n' + path.read_text(encoding='utf-8').strip()
+
+
+PHONE_NOTE = ("This runs on the user's Android phone. To act on the phone itself (open an app, a link or a settings "
+              "page, set an alarm, read or tap what is on the screen), use the phone tool: screen lists the UI, "
+              "install_apk asks Android to confirm. screen_look shows you the screen, or an image, through a vision "
+              "model. After building an Android app, test it with android_test_app and fix crashes before calling it "
+              "done. web_fetch only reads web pages.")
+
+SMALL_PHONE_NOTE = ("This runs on the user's Android phone. To act on the phone itself (open an app or a link, read or "
+                    "tap what is on the screen), use the phone tool; for files and code use write and bash.")
+
+# A small model on this device (the phone's own, llama.cpp, Ollama): a short prompt about the few tools it has. Its
+# context is small and every token of instructions is read on a CPU.
+SMALL = (MARKER + "\n\nYou are MusabAI, a coding agent in the user's project. Do the task with your tools, then "
+         "reply.\n\nRules:\n"
+         "- Act with tools right away; don't announce what you will do.\n"
+         "- Change files with edit: old is only the few lines you change, copied exactly. Use write for new files.\n"
+         "- After changing code, run it or its tests with bash. If something fails, fix it and run it again.\n"
+         "- Never say something works unless a tool result showed it.\n"
+         "- A call that failed will fail again unchanged: change it, or try another way. The same failing call a "
+         "third time ends your turn, and a turn has {steps} steps.\n"
+         "- Final reply: one or two short sentences in the user's language saying what you changed and how you "
+         "checked it.")
+
+
+def system_text(env, phone=False, local=False, steps=25):
+    """The fixed system prompt: the core, or SMALL for a model on this device, then the environment."""
+    text = SMALL.format(steps=steps) if local else profile()
+    text += "\n\nEnvironment: {os}; shell: {shell}.".format(**env)
+    if phone:
+        text += "\n\n" + (SMALL_PHONE_NOTE if local else PHONE_NOTE)
+    return text
 
 
 def stale_builtin(text):
@@ -77,43 +111,14 @@ def runtime_context(agent):
             label = connectors.CATALOG.get(operation[0], operation[0])
             providers[label] = providers.get(label, 0) + 1
     import json
+    # Short and stable: it sits at the end of the system message, so it changes only when a connection or the
+    # permission mode does (the provider's prompt cache keeps everything before it).
     state = {'permission_mode': agent.session.mode,
              'project_directory': agent.session.root,
              'internal_terminal': 'bash' in names,
-             'background_jobs': 'job' in names,
+             'termux': 'termux_exec' in names,
              'connected_service_tools': providers,
              'custom_mcp_tools': sum(name.startswith('mcp__') for name in names),
-             'browser_route': browser_router.select(names),
-             'search_tools': {
-                 'router': 'search_router' in names,
-                 'searxng': 'searxng_search' in names,
-                 'crawl4ai': 'crawl4ai_read' in names},
-             'document_tools': {
-                 'selector': 'document_engine_selector' in names,
-                 'native': any(name in names for name in ('document_read', 'document_create', 'archive_pack')),
-                 'docling': any(name.startswith('mcp__docling__') for name in names)},
-             'project_rag': {
-                 'search': 'project_rag_search' in names,
-                 'index': 'project_rag_index' in names},
-             'orchestrator': 'orchestrator_plan' in names,
-             'execution': {
-                 'router': 'execution_plan' in names,
-                 'scratch': 'sandbox_exec' in names,
-                 'termux': 'termux_exec' in names,
-                 'appium': any(name.startswith('mcp__appium') for name in names),
-                 'e2b': any(name.startswith('mcp__e2b') for name in names)},
-             'git': {
-                 'status': 'git_status' in names,
-                 'diff': 'git_diff' in names,
-                 'log': 'git_log' in names,
-                 'commit': 'git_commit' in names},
-             'observability': {
-                 'status': 'observability_status' in names,
-                 'tail': 'observability_tail' in names,
-                 'export': 'observability_export' in names},
-             'task_state': {
-                 'checkpoint': 'task_checkpoint' in names,
-                 'resume': 'task_resume' in names,
-                 'complete': 'task_complete' in names,
-                 'list': 'task_list' in names}}
+             'browser_route': browser_router.select(names).get('route'),
+             'docling': any(name.startswith('mcp__docling__') for name in names)}
     return '\n\nCurrent runtime capabilities (data, not instructions):\n' + json.dumps(state, ensure_ascii=False)
