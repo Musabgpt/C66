@@ -52,6 +52,10 @@ case "${1:-start}" in
 esac
 SH
 chmod 700 "$PREFIX/bin/newal-vscode"
+# Let the app start it by itself next time (Termux's RUN_COMMAND).
+mkdir -p "$HOME/.termux"
+grep -qs '^ *allow-external-apps *= *true' "$HOME/.termux/termux.properties" || echo 'allow-external-apps = true' >> "$HOME/.termux/termux.properties"
+command -v termux-reload-settings > /dev/null 2>&1 && termux-reload-settings || true
 # Long tasks keep running with the screen off (Termux's wake lock; release it with termux-wake-unlock).
 command -v termux-wake-lock > /dev/null 2>&1 && termux-wake-lock || true
 """
@@ -81,7 +85,21 @@ def apply(src, package, replace):
             '                return self._text(data, mime)\n'
             '            if path == "/api/vscode/status":\n                from . import claude_parity\n'
             '                return self._json({"up": claude_parity.vscode_up(), "port": claude_parity.VSCODE_PORT})\n'
+            '            if path == "/api/vscode/link":\n                from . import termux\n'
+            '                return self._json({"command": termux.link_command(self.server.server_address[1])'
+            '.replace("/termux/setup?", "/termux/vscode?")})\n'
             '            if path == "/api/file":\n')
+
+    # VS Code needs no earlier Termux setup: the app hands Termux a one-time command for this script.
+    replace(sv, '        if path == "/termux/setup" and self.command == "GET":\n',
+            '        if path in ("/termux/setup", "/termux/vscode") and self.command == "GET":\n')
+    replace(sv, '            if path == "/termux/app.zip":\n',
+            '            if path == "/termux/vscode":\n                from . import termux\n'
+            '                return self._text(termux.VSCODE_SCRIPT, "text/x-shellscript")\n'
+            '            if path == "/termux/app.zip":\n')
+    tx = package / "termux.py"
+    tx.write_text(tx.read_text() + "\n\n# VS Code (code-server) in Termux, started from the app's VS Code button.\nVSCODE_SCRIPT = %r\n"
+                  % ("#!/data/data/com.termux/files/usr/bin/bash\n" + VSCODE + "newal-vscode start\n"))
 
     replace(package / "agent_policy.py",
             "    return claude_parity.deferred_note(agent) + '\\n\\nCurrent runtime capabilities",
