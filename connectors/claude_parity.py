@@ -274,3 +274,52 @@ def bang(service, s, command_text):
         pass
     return {"started": False, "reply": "$ %s\n%s\n(exit %d)" % (cmd, out.rstrip(), code), "output": True,
             "code": code}
+
+
+# ------------------------------------------------------------------ workspace: raw files and VS Code
+
+RAW_LIMIT = 25 * 1024 * 1024
+VSCODE_PORT = 8780
+
+
+def raw_file(root, rel):
+    """(bytes, mime) of a file inside the project for the chat's previews; ValueError outside it or too large."""
+    import mimetypes
+    root = os.path.realpath(root or "")
+    if not root or not os.path.isdir(root):
+        raise ValueError("no project")
+    full = os.path.realpath(os.path.join(root, rel or ""))
+    if full != root and not full.startswith(root + os.sep):
+        raise ValueError("outside the project")
+    if not os.path.isfile(full):
+        raise ValueError("no such file")
+    if os.path.getsize(full) > RAW_LIMIT:
+        raise ValueError("too large to preview")
+    mime = mimetypes.guess_type(full)[0] or "application/octet-stream"
+    if mime.startswith("text/html") or mime in ("application/xhtml+xml", "text/javascript", "application/javascript"):
+        mime = "text/plain; charset=utf-8"      # project HTML never runs on the app's own origin (previews use srcdoc)
+    with open(full, "rb") as f:
+        return f.read(), mime
+
+
+def vscode_up():
+    import socket
+    try:
+        with socket.create_connection(("127.0.0.1", VSCODE_PORT), timeout=0.5):
+            return True
+    except OSError:
+        return False
+
+
+WORK_RULES = (
+    "\n\nWorking style (like Cursor and Claude Code): for work with several steps keep a todo list and tick items as "
+    "they finish; read a file before editing it and change only the lines that need it; after changing code run the "
+    "project's tests or the program and fix what fails before saying it works; name files as `relative/path.ext` in "
+    "answers (the user taps them to preview); keep answers short and lead with the result; when a request is "
+    "ambiguous and a wrong guess is costly, ask one short question first.")
+
+
+def work_rules(agent):
+    if (getattr(agent, "agent_def", None) or {}).get("tools"):
+        return ""          # subagents keep their own instructions
+    return WORK_RULES
