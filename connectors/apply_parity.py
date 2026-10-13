@@ -17,6 +17,9 @@ def replace(path, before, after):
 def apply(root):
     src = root / "connectors"
     package = root / "desktop" / "newal_code"
+    if "claude_parity" in (package / "agent.py").read_text():
+        print("claude parity already applied")
+        return
     for name in ("claude_parity", "claude_parity_tests"):
         shutil.copyfile(src / (name + ".py"), package / (name + ".py"))
 
