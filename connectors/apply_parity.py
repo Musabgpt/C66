@@ -107,6 +107,10 @@ def apply(root):
     links = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(links)
     links.apply(package, replace)
+    spec = importlib.util.spec_from_file_location("apply_cursor", src / "apply_cursor.py")
+    cursor = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(cursor)
+    cursor.apply(src, package, replace)
     print("claude parity applied")
 
 
