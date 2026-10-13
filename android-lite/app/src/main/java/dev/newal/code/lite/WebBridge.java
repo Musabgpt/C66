@@ -134,11 +134,12 @@ final class WebBridge {
     /**
      * The link in one tap: Termux runs the setup command in a session the user sees (it can ask for a GitHub sign-in
      * there). Termux refuses it until allow-external-apps is on, which the first setup turns on; the page then falls
-     * back to termuxSetup (one paste).
+     * back to termuxSetup (one paste). It also starts VS Code (code-server) in Termux.
      */
     @JavascriptInterface
     public String termuxRunVisible(String command) {
-        if (command == null || !command.startsWith("curl -fsSL 'http://127.0.0.1:")) {
+        if (command == null || !(command.startsWith("curl -fsSL 'http://127.0.0.1:")
+                || "newal-vscode start".equals(command))) {
             return "invalid";
         }
         if (!Termux.installed(act)) {
