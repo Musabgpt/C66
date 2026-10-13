@@ -109,6 +109,21 @@ def apply(src, package, replace):
     tx.write_text(tx.read_text() + "\n\n# VS Code (code-server) in Termux, started from the app's VS Code button.\nVSCODE_SCRIPT = %r\n"
                   % ("#!/data/data/com.termux/files/usr/bin/bash\n" + VSCODE + "newal-vscode start\n"))
 
+    # Code intelligence the agent uses itself (Cursor-style): problems, outline, definitions/references, VS Code.
+    shutil.copyfile(src / "code_intel.py", package / "code_intel.py")
+    tl = package / "tools.py"
+    replace(tl, "_tool_search.install()\n", "_tool_search.install()\nfrom . import code_intel as _code_intel\n_code_intel.install()\n")
+    replace(tl, " + _tool_search.NAMES\n", " + _tool_search.NAMES + _code_intel.NAMES\n")
+    replace(tl, "        found = diagnostics.check(path, text)\n",
+            "        found = diagnostics.check(path, text)\n        from . import code_intel\n"
+            "        found = list(found) + code_intel.extra_problems(path)\n")
+    cp = package / "claude_parity.py"
+    replace(cp, '"dependency_install", "capability_ensure",', '"diagnostics", "code_outline", "find_symbol", "dependency_install", "capability_ensure",')
+    replace(cp, '"project\'s tests or the program and fix what fails before saying it works; ',
+            '"project\'s tests or the program and fix what fails before saying it works; use code_outline to navigate big "\n'
+            '    "files, find_symbol before renaming or changing a signature, and diagnostics on the changed files before "\n'
+            '    "finishing; when VS Code runs, vscode_open shows the user the file you changed; ')
+
     replace(package / "agent_policy.py",
             "    return claude_parity.deferred_note(agent) + '\\n\\nCurrent runtime capabilities",
             "    return claude_parity.work_rules(agent) + claude_parity.deferred_note(agent) + '\\n\\nCurrent runtime capabilities")
