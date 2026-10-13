@@ -148,3 +148,11 @@ def apply(src, package, replace):
             '["groq", "gemini", "openrouter", "nvidia", "zhipu", "mistral"]')
     replace(package / "termux.py", "# GitHub: one login for gh and git in Termux and for the app",
             VSCODE + "# GitHub: one login for gh and git in Termux and for the app")
+
+    # Further features live in their own connectors/apply_ext_*.py files (each: apply(src, package, replace)).
+    import importlib.util
+    for ext in sorted(src.glob("apply_ext_*.py")):
+        spec = importlib.util.spec_from_file_location(ext.stem, ext)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        module.apply(src, package, replace)

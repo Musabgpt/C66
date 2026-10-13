@@ -1,0 +1,15 @@
+/* MusabAI review (ext_review.js) */
+.mh-box { padding: 8px; display: flex; flex-direction: column; gap: 8px; }
+.mh-hunk { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.mh-hunk.kept { opacity: .55; border-style: dashed; }
+.mh-head { display: flex; justify-content: space-between; align-items: center; padding: 4px 8px; background: var(--bg-soft);
+  font-size: 12px; color: var(--fg-soft); }
+.mh-actions button { border: 1px solid var(--border); background: var(--bg); color: var(--fg); border-radius: 6px;
+  width: 30px; height: 26px; margin-inline-start: 4px; cursor: pointer; font-size: 14px; }
+.mh-keep:hover { background: var(--add-bg); } .mh-undo:hover { background: var(--del-bg); }
+.mh-lines { margin: 0; padding: 6px 8px; font-family: var(--mono); font-size: 12px; white-space: pre-wrap; word-break: break-word; }
+.mh-lines .del { background: var(--del-bg); color: var(--del-fg); display: inline-block; width: 100%; }
+.mh-lines .add { background: var(--add-bg); color: var(--add-fg); display: inline-block; width: 100%; }
+.msg-user { position: relative; }
+.mh-restore { border: 0; background: transparent; color: var(--fg-faint); cursor: pointer; font-size: 15px; padding: 2px 6px; }
+.mh-restore:hover { color: var(--fg); }
