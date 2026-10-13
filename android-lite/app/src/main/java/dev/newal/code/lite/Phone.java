@@ -113,7 +113,7 @@ final class Phone {
             case "clipboard":
                 return clipboard(ctx, a.has("text") ? a.optString("text") : null);
             case "notify":
-                return notify(ctx, a.optString("title", "NewAl Code"), a.optString("text"));
+                return notify(ctx, a.optString("title", "NewAl Code"), a.optString("text"), a.optBoolean("only_background", false));
             case "share":
                 return start(ctx, Intent.createChooser(new Intent(Intent.ACTION_SEND).setType("text/plain")
                         .putExtra(Intent.EXTRA_TEXT, a.optString("text")), null), "the share sheet is open");
@@ -334,13 +334,30 @@ final class Phone {
         });
     }
 
-    private static JSONObject notify(Context ctx, String title, String text) throws Exception {
+    private static JSONObject notify(Context ctx, String title, String text, boolean onlyBackground) throws Exception {
+        if (onlyBackground) {
+            // the end-of-task summary: not while the user is looking at the app with the screen on
+            ActivityManager.RunningAppProcessInfo me = new ActivityManager.RunningAppProcessInfo();
+            ActivityManager.getMyMemoryState(me);
+            android.os.PowerManager pm = ctx.getSystemService(android.os.PowerManager.class);
+            boolean screenOn = pm == null || pm.isInteractive();
+            if (screenOn && me.importance <= ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND) {
+                return ok("not posted: the app is on screen");
+            }
+        }
         NotificationManager nm = ctx.getSystemService(NotificationManager.class);
         nm.createNotificationChannel(new NotificationChannel("agent", "NewAl Code: from the agent",
                 NotificationManager.IMPORTANCE_DEFAULT));
-        Notification n = new Notification.Builder(ctx, "agent").setContentTitle(title).setContentText(text)
+        Notification.Builder nb = new Notification.Builder(ctx, "agent").setContentTitle(title).setContentText(text)
                 .setStyle(new Notification.BigTextStyle().bigText(text)).setSmallIcon(R.drawable.ic_stat)
-                .setAutoCancel(true).build();
+                .setAutoCancel(true);
+        Intent open = ctx.getPackageManager().getLaunchIntentForPackage(ctx.getPackageName());
+        if (open != null) {
+            open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            nb.setContentIntent(android.app.PendingIntent.getActivity(ctx, 7, open,
+                    android.app.PendingIntent.FLAG_IMMUTABLE | android.app.PendingIntent.FLAG_UPDATE_CURRENT));
+        }
+        Notification n = nb.build();
         nm.notify((int) (System.currentTimeMillis() % 100000) + 10, n);
         return ok("notification posted");
     }
