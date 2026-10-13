@@ -276,6 +276,120 @@ class ExtensionTests(unittest.TestCase):
         self.write("android/app/build.gradle", "defaultConfig {\n  applicationId 'org.x.y'\n}")
         self.assertEqual(phone_ext.application_id(self.root), "org.x.y")
 
+    # ---------------------------------------------------------------- background agents
+    def git_project(self):
+        self.write("a.py", "x = 1\n")
+        for args in (["init", "-q"], ["add", "-A"], ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init"]):
+            subprocess.run(["git"] + args, cwd=self.root, check=True, capture_output=True)
+
+    def test_background_agent_works_in_its_own_worktree_and_is_applied(self):
+        import threading
+        from . import fleet, service
+        self.git_project()
+        svc = service.Service()
+        self.assertIs(fleet.SERVICE, svc)
+        parent = svc.create(self.root)
+        sent = []
+
+        def send(sid, text, images=None, lang=""):
+            sent.append(text)
+            s = svc.get(sid)
+
+            def work():
+                with open(os.path.join(s.root, "a.py"), "w") as f:
+                    f.write("x = 2\n")
+                s.add({"role": "assistant", "content": "Changed a.py; checked it."})
+            t = threading.Thread(target=work)
+            svc.threads[sid] = t
+            t.start()
+            return {"started": True, "session": sid}
+        svc.send = send
+        sid, name, isolated = fleet.start(svc, parent, "set x to 2 in a.py")
+        self.assertTrue(isolated)
+        self.assertIn("background agent", sent[0])
+        [done] = fleet.wait(svc, [sid], longest=20)
+        self.assertEqual(done["state"], "done")
+        self.assertIn("Changed a.py", done["answer"])
+        with open(os.path.join(self.root, "a.py")) as f:
+            self.assertEqual(f.read(), "x = 1\n")                       # the project is untouched until applied
+        self.assertEqual(fleet.apply(svc, sid).get("applied"), ["a.py"])
+        with open(os.path.join(self.root, "a.py")) as f:
+            self.assertEqual(f.read(), "x = 2\n")
+        with self.assertRaises(fleet.FleetError):
+            fleet.start(svc, svc.get(sid), "more work")                  # no agents starting agents
+        self.assertIn("/bg <task>", svc.command(parent, "/bg")["reply"])
+        self.assertIn(name[:10], svc.command(parent, "/agents")["reply"])
+        self.assertIn("/agents", svc.command(parent, "/help")["reply"])
+
+    # ---------------------------------------------------------------- GitHub from the chat
+    def fake_github(self, responses):
+        from unittest import mock
+        from . import github
+        calls = []
+
+        def api(method, path, body=None, tok=None):
+            calls.append((method, path, body))
+            for prefix, value in responses:
+                if path.startswith(prefix):
+                    return value.pop(0) if isinstance(value, list) and len(value) > 1 else (
+                        value[0] if isinstance(value, list) else value)
+            return {}
+        for p in (mock.patch.object(github, "token", return_value="t"), mock.patch.object(github, "_api", side_effect=api)):
+            p.start()
+            self.addCleanup(p.stop)
+        return calls
+
+    def test_github_overview_watch_and_merge(self):
+        import threading
+        from unittest import mock
+        from . import ci, gh_monitor
+        run_ok = {"id": 11, "run_number": 381, "name": "android", "status": "completed", "conclusion": "success",
+                  "head_branch": "main", "display_title": "Merge #30", "html_url": "https://x/11",
+                  "run_started_at": "2026-10-13T20:00:00Z", "updated_at": "2026-10-13T20:04:30Z"}
+        run_going = dict(run_ok, id=12, run_number=382, status="in_progress", conclusion=None)
+        run_failed = dict(run_going, status="completed", conclusion="failure")
+        calls = self.fake_github([
+            ("/repos/o/r/actions/runs?head_sha=", {"workflow_runs": [{"id": 12, "name": "android", "status": "completed",
+                                                                       "conclusion": "success", "created_at": "x"}]}),
+            ("/repos/o/r/actions/runs?per_page", {"workflow_runs": [run_going, run_ok]}),
+            ("/repos/o/r/actions/runs/12", [run_going, run_failed]),
+            ("/repos/o/r/pulls?state=open", [[{"number": 7, "title": "Phone", "head": {"ref": "f", "sha": "abc"},
+                                               "base": {"ref": "main"}, "html_url": "u"}]]),
+            ("/repos/o/r/pulls/7/merge", {"merged": True, "sha": "0b36bbf5"}),
+            ("/repos/o/r/pulls/7", {"head": {"sha": "abc"}}),
+        ])
+        text, data = gh_monitor.overview("o/r")
+        self.assertIn("#381 android ✓", text)
+        self.assertIn("#7 Phone (f → main) · ✓ passing", text)
+        self.assertEqual(gh_monitor.resolve_run("o/r", "pr 7"), 12)
+        self.assertEqual(gh_monitor.resolve_run("o/r", "#381"), 11)
+        events = []
+        svc = SimpleNamespace(broadcast=events.append)
+        with mock.patch.object(gh_monitor, "POLL", 0), \
+             mock.patch.object(ci, "failures", return_value=[{"run": "android", "job": "build", "url": "u",
+                                                                "steps": ["Test"], "log": "AssertionError: 1 != 2"}]):
+            self.assertTrue(gh_monitor.watch_in_background(svc, "s1", "o/r", 12))
+            for t in threading.enumerate():
+                if t.name == "musab-gh-watch":
+                    t.join(10)
+        end = [e for e in events if e.get("type") == "gh_watch" and e.get("state") == "end"][0]
+        self.assertFalse(end["ok"])
+        self.assertIn("AssertionError", end["text"])
+        self.assertTrue(any(e.get("type") == "notice" and e.get("session") == "s1" for e in events))
+        self.assertIn("Merged #7", gh_monitor.merge("o/r", "7", "squash"))
+        self.assertIn(("PUT", "/repos/o/r/pulls/7/merge", {"merge_method": "squash"}), calls)
+        self.assertEqual(gh_monitor.full_name("", "https://github.com/Musabgpt/NewAl-Cloud.git"), "Musabgpt/NewAl-Cloud")
+        with self.assertRaises(gh_monitor.GHError):
+            gh_monitor.full_name("", "not a repo")
+
+    def test_fleet_and_github_tools_are_offered(self):
+        for name in ("background_agent", "github_monitor"):
+            self.assertIn(name, tools.REGISTRY)
+            self.assertIn(name, tools.default_set(root=self.root))
+        from . import permissions
+        self.assertIn("watch", permissions.GITHUB_LOOKS)
+        self.assertNotIn("merge", permissions.GITHUB_LOOKS)
+
 
 if __name__ == "__main__":
     unittest.main()
