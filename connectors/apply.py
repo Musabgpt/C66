@@ -502,4 +502,7 @@ def apply(root):
 
 
 if __name__ == "__main__":
-    apply(Path(sys.argv[1] if len(sys.argv) > 1 else ".").resolve())
+    target = Path(sys.argv[1] if len(sys.argv) > 1 else ".").resolve()
+    apply(target)
+    import apply_parity  # connectors/apply_parity.py: Claude Code parity layer (idempotent)
+    apply_parity.apply(target)
