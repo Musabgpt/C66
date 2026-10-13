@@ -158,6 +158,124 @@ class ExtensionTests(unittest.TestCase):
         a.client = SimpleNamespace(chat=lambda m, **kw: SimpleNamespace(content="LGTM"), on_device=False)
         self.assertEqual(smart.review(a, ctx2), "")                     # small or approved: nothing to fix
 
+    # ---------------------------------------------------------------- fixes: uv preparation, stale Termux bridge
+    def test_service_that_never_updated_still_prepares_uv(self):
+        import threading
+        from unittest import mock
+        from . import automation as au, runtime_manager as rm
+        setup = au.DependencyPreparation()
+        service = SimpleNamespace(lock=threading.RLock())            # no .updating: no engine update ran yet
+        with mock.patch.object(rm, "_termux_record", return_value={"status": "connected"}), \
+             mock.patch.object(au, "ensure_dependency", return_value={"ok": True, "exit_code": 0, "stdout": "uv 1\nuvx 1"}):
+            setup.tick(service, threading.Event())
+        self.assertEqual(setup.status()["state"], "ready")
+
+    def test_bridge_from_an_earlier_install_is_replaced(self):
+        import io
+        import urllib.error
+        from unittest import mock
+        from . import runtime_manager as rm
+        err = urllib.error.HTTPError("http://127.0.0.1:8799/health", 401, "x", {}, io.BytesIO(b'{"error":"unauthorized"}'))
+        opener = mock.Mock()
+        opener.open.side_effect = err
+        with mock.patch.object(rm, "_bridge_token", return_value="t" * 64), \
+             mock.patch.object(rm.urllib.request, "build_opener", return_value=opener):
+            with self.assertRaises(rm.BridgeStaleToken):
+                rm._bridge_request("GET", "/health")
+        responses = [rm.BridgeStaleToken("unauthorized"),
+                     {"ok": True, "bridge": "musabai-termux", "version": rm.termux_bridge_server.VERSION}]
+        with mock.patch.object(rm, "_bridge_request", side_effect=responses), \
+             mock.patch.object(rm, "_bootstrap_bridge") as bootstrap:
+            self.assertEqual(rm._ensure_bridge()["version"], rm.termux_bridge_server.VERSION)
+        bootstrap.assert_called_once()
+
+    # ---------------------------------------------------------------- the phone
+    def fake_phone(self, screens, apps=("Files (com.android.files)",)):
+        from . import phone
+        shot = self.write("shot.jpg", "jpegbytes")
+        calls = []
+        screens = list(screens)
+        apps = list(apps)
+
+        def call(action, timeout=90, **args):
+            calls.append((action, args))
+            if action == "screen":
+                return {"text": screens.pop(0) if len(screens) > 1 else screens[0]}
+            if action == "apps":
+                return {"text": "\n".join(apps.pop(0) if len(apps) > 1 else apps[0])}
+            if action == "screenshot":
+                return {"path": shot, "preview_path": shot}
+            if action == "crash_reports":
+                return {"text": "(no local test reports)"}
+            return {"ok": True, "text": "done"}
+        from unittest import mock
+        for p in (mock.patch.object(phone, "available", return_value=True),
+                  mock.patch.object(phone, "call", side_effect=call), mock.patch("time.sleep")):
+            p.start()
+            self.addCleanup(p.stop)
+        return calls
+
+    def vision_agent(self, answer="A login screen with a blue Sign in button at the bottom."):
+        a = self.agent()
+        seen = []
+
+        def chat(messages, **kw):
+            seen.append(messages)
+            return SimpleNamespace(content=answer)
+        a.client = SimpleNamespace(chat=chat, on_device=False)
+        return a, seen
+
+    def test_screen_look_shows_the_screenshot_to_a_vision_model(self):
+        from . import agent
+        self.fake_phone(["App: Demo (com.demo)"])
+        a, seen = self.vision_agent()
+        text, meta = tools.call(agent.ToolContext(a), "screen_look", {"question": "is the button visible?"})[:2]
+        self.assertIn("blue Sign in button", text)
+        self.assertTrue(meta["vision"])
+        part = seen[0][0]["content"][1]
+        self.assertTrue(part["image_url"]["url"].startswith("data:image/jpeg;base64,"))
+        self.assertIn("is the button visible?", seen[0][0]["content"][0]["text"])
+
+    def test_android_test_app_installs_opens_and_reports_a_crash(self):
+        from . import agent
+        self.write("app/build.gradle.kts", 'android { defaultConfig { applicationId = "com.demo.app" } }')
+        self.write("out/app.apk", "PK")
+        calls = self.fake_phone(
+            ["App: Package installer (com.google.android.packageinstaller)\nInstall",
+             "App: Launcher (com.launcher)",
+             "App: Demo (com.demo.app)\nDemo keeps stopping\nClose app"],
+            apps=[("Files (com.android.files)",), ("Files (com.android.files)", "Demo (com.demo.app)")])
+        a, _ = self.vision_agent("An Android crash dialog.")
+        text, meta = tools.call(agent.ToolContext(a), "android_test_app", {"apk": "out/app.apk"})[:2]
+        actions = [c[0] for c in calls]
+        self.assertIn("install_apk", actions)
+        self.assertIn(("open_app", {"name": "com.demo.app"}), calls)
+        self.assertTrue(meta["crashed"])
+        self.assertIn("CRASHED", text)
+        self.assertIn("crash dialog", text)
+
+    def test_finish_notification_summarises_long_turns_only(self):
+        from . import phone_ext
+        title, text = phone_ext.summary("**Done.** Fixed the login bug.\nMore detail", 95, "", [{"path": "a"}, {"path": "b"}])
+        self.assertIn("انتهت", title)
+        self.assertIn("Done. Fixed the login bug.", text)
+        self.assertIn("1m 35s · 2 files changed", text)
+        calls = self.fake_phone(["App: x (y)"])
+        a = self.agent()
+        phone_ext.finished(a, "ok", 5)                    # short: the user is still there
+        import threading
+        phone_ext.finished(a, "ok", 60)
+        for t in threading.enumerate():
+            if t.name == "musab-finish-notify":
+                t.join(5)
+        self.assertEqual([c for c in calls if c[0] == "notify"],
+                         [("notify", {"title": "MusabAI: انتهت المهمة ✓", "text": "ok\n1m 0s", "only_background": True})])
+
+    def test_application_id_from_gradle(self):
+        from . import phone_ext
+        self.write("android/app/build.gradle", "defaultConfig {\n  applicationId 'org.x.y'\n}")
+        self.assertEqual(phone_ext.application_id(self.root), "org.x.y")
+
 
 if __name__ == "__main__":
     unittest.main()
