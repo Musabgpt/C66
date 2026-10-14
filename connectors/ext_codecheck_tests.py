@@ -49,6 +49,24 @@ class CodeCheckTests(unittest.TestCase):
         certain, _ = code_check.problems(results, self.root, certain=True)
         self.assertEqual(certain, ["a.py:4:7: error: Argument missing (reportCallIssue)"])
 
+    def test_an_npm_package_runs_through_node_even_off_path(self):
+        """Termux: npm's bin folder may be off PATH and #!/usr/bin/env fails there, so the package's own script runs
+        with node; a server found nowhere says where it looked."""
+        from . import lsp_once
+        pkg = os.path.join(self.root, "prefix", "lib", "node_modules", "pyright")
+        self.write(os.path.join(pkg, "package.json"),
+                   '{"name": "pyright", "bin": {"pyright-langserver": "langserver.index.js"}}')
+        self.write(os.path.join(pkg, "langserver.index.js"), "// server\n")
+        which = {"node": "/opt/node/bin/node"}
+        with mock.patch.object(lsp_once.shutil, "which", lambda n: which.get(n)), \
+                mock.patch.object(lsp_once.subprocess, "run", side_effect=OSError("no npm")), \
+                mock.patch.dict(os.environ, {"PREFIX": os.path.join(self.root, "prefix")}):
+            cmd, _ = lsp_once.resolve(["pyright-langserver", "--stdio"])
+            self.assertEqual(cmd, ["/opt/node/bin/node", os.path.join(pkg, "langserver.index.js"), "--stdio"])
+            missing = lsp_once.run({"server": ["typescript-language-server", "--stdio"], "files": []})
+        self.assertEqual(missing["missing"], "typescript-language-server")
+        self.assertIn(os.path.join(self.root, "prefix", "lib", "node_modules"), missing["looked"])
+
     def test_first_use_in_termux_installs_the_servers_once(self):
         from . import code_check, runtime_manager
         self.write("a.py", "x = 1\n")

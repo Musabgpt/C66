@@ -119,10 +119,73 @@ class Server:
             self.proc.kill()
 
 
+PACKAGES = {"pyright-langserver": "pyright", "typescript-language-server": "typescript-language-server"}
+
+
+def _npm_roots(ask_npm=False):
+    """Where npm puts global packages: next to node, Termux's prefix, a user prefix; npm's own answer (a slow start on
+    a phone) only when those have nothing."""
+    roots = []
+    if ask_npm:
+        try:
+            out = subprocess.run(["npm", "root", "-g"], capture_output=True, text=True, timeout=25).stdout.strip()
+            if out:
+                roots.append(out)
+        except Exception:  # noqa: BLE001 - no npm
+            pass
+    node = shutil.which("node")
+    if node:
+        roots.append(os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(node))), "lib", "node_modules"))
+    prefix = os.environ.get("PREFIX") or "/data/data/com.termux/files/usr"
+    roots += [os.path.join(prefix, "lib", "node_modules"), os.path.expanduser("~/.npm-global/lib/node_modules"),
+              "/usr/local/lib/node_modules", "/usr/lib/node_modules"]
+    seen, out = set(), []
+    for r in roots:
+        if r and r not in seen:
+            seen.add(r)
+            out.append(r)
+    return out
+
+
+def _script(roots, pkg, name):
+    for root in roots:
+        try:
+            with open(os.path.join(root, pkg, "package.json"), encoding="utf-8") as f:
+                bins = json.load(f).get("bin")
+        except (OSError, ValueError):
+            continue
+        rel = bins.get(name) if isinstance(bins, dict) else bins
+        script = os.path.join(root, pkg, rel or "")
+        if rel and os.path.isfile(script):
+            return script
+    return ""
+
+
+def resolve(cmd):
+    """The command that starts the server. An npm package runs as `node <its script>`: a script's
+    `#!/usr/bin/env node` line fails where there is no /usr/bin/env (Termux without termux-exec), and the package
+    is found even when npm's bin folder is not on PATH. Else the command on PATH. ([], places looked) when missing."""
+    pkg = PACKAGES.get(cmd[0])
+    node = shutil.which("node")
+    roots = _npm_roots() if pkg else []
+    if pkg and node:
+        script = _script(roots, pkg, cmd[0])
+        if not script and not shutil.which(cmd[0]):
+            roots = _npm_roots(ask_npm=True)
+            script = _script(roots, pkg, cmd[0])
+        if script:
+            return [node, script] + cmd[1:], roots
+    exe = shutil.which(cmd[0])
+    if exe:
+        return [exe] + cmd[1:], roots
+    return [], roots
+
+
 def run(args):
-    cmd = args["server"]
-    if not shutil.which(cmd[0]):
-        return {"missing": cmd[0]}
+    cmd, looked = resolve(args["server"])
+    if not cmd:
+        return {"missing": args["server"][0], "node": shutil.which("node") or "", "looked": looked,
+                "path": os.environ.get("PATH", "")}
     root = os.path.abspath(args.get("root") or ".")
     files = [os.path.abspath(f) for f in args.get("files") or []]
     deadline = time.time() + float(args.get("timeout") or 40)
