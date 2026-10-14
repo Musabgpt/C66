@@ -58,11 +58,14 @@ def where(kind):
     return ""
 
 
+def _payload(args):
+    return base64.b64encode(json.dumps(args).encode("utf-8")).decode("ascii")
+
+
 def _run(args, place, timeout=60):
-    payload = base64.b64encode(json.dumps(args).encode("utf-8")).decode("ascii")
     if place == "local":
         try:
-            p = subprocess.run([sys.executable, _client_path(), payload], capture_output=True, text=True,
+            p = subprocess.run([sys.executable, _client_path(), _payload(args)], capture_output=True, text=True,
                                timeout=timeout, errors="replace")
             return json.loads(p.stdout or "{}")
         except subprocess.TimeoutExpired:
@@ -72,7 +75,11 @@ def _run(args, place, timeout=60):
     from . import runtime_manager
     with open(_client_path(), encoding="utf-8") as f:
         source = f.read()
-    command = "python3 - %s <<'MUSAB_LSP_EOF'\n%s\nMUSAB_LSP_EOF" % (payload, source)
+    # Termux: lsp_once.py is written to ~/.cache/musab-lsp (renamed into place, so a check never reads a half-written
+    # file) and run there with keep, so the language server stays up for the next check
+    command = ('D="$HOME/.cache/musab-lsp"; mkdir -p "$D" && cat > "$D/lsp_once.py.$$" <<\'MUSAB_LSP_EOF\'\n%s\n'
+               'MUSAB_LSP_EOF\nmv -f "$D/lsp_once.py.$$" "$D/lsp_once.py" && python3 "$D/lsp_once.py" %s') % (
+        source, _payload(dict(args, keep=True)))
     data = runtime_manager.execute(command)
     try:
         return json.loads(data.get("stdout") or "{}")
@@ -229,6 +236,9 @@ def install():
                     notes.append(install_status(where(kind) or ("termux" if _termux() else "local"), res))
                 elif res.get("error"):
                     notes.append("%s: %s" % (SERVERS[kind][0], res["error"]))
+                elif res.get("complete") is False:
+                    notes.append("%s did not finish checking in time, so some results may be missing: run code_check "
+                                 "again." % SERVERS[kind][0])
             lines, n = problems(results, ctx.root)
             checked = sum(len(r.get("diagnostics") or {}) for r in results.values())
             head = ("%d error(s), %d warning(s) in %d file(s)" % (n["errors"], n["warnings"], checked) if checked
