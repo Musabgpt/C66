@@ -21,6 +21,8 @@ class FakePhone:
     def __init__(self):
         self.calls = []
         self.screen = "App: Launcher (com.android.launcher)\n[1] WhatsApp · tap"
+        self.echo = True                              # the chat shows what was sent
+        self.last = ""                                # the text typed into the chat
 
     def __call__(self, action, timeout=90, **args):
         self.calls.append((action, args))
@@ -42,13 +44,15 @@ class FakePhone:
             elif label in ("first", "مروة", "أحمد"):
                 self.screen = CHAT
             elif label == "Send":
-                self.screen = CHAT + "\n[4] sent ✓"
+                self.screen = CHAT + ("\n[4] %s · sent ✓" % self.last if self.echo else "\n[4] sent ✓")
             else:
                 return {"ok": False, "error": "nothing on the screen says \"%s\"" % label}
             return {"ok": True, "text": "tapped %s" % label}
         if action == "type":
             if self.screen == SEARCH:
                 self.screen = RESULT
+            elif self.screen == CHAT:
+                self.last = str(args.get("text") or "")
             return {"ok": True, "text": "typed"}
         return {"ok": True, "text": "done"}
 
@@ -62,6 +66,10 @@ class LeanTests(unittest.TestCase):
         p = mock.patch.object(settings, "HOME", os.path.join(self.root, "home"))
         p.start()
         self.addCleanup(p.stop)
+        # settings.save writes CONFIG, which is fixed when the module loads: a test must not write the real one
+        c = mock.patch.object(settings, "CONFIG", os.path.join(self.root, "home", "config.json"))
+        c.start()
+        self.addCleanup(c.stop)
         self.fake = FakePhone()
         from . import phone
         for patch in (mock.patch.object(phone, "call", self.fake), mock.patch.object(phone, "available", lambda: True)):
@@ -147,7 +155,21 @@ class LeanTests(unittest.TestCase):
         typed = [c[1].get("text") for c in self.fake.calls if c[0] == "type"]
         self.assertEqual(typed, ["أحمد", "كيفك"])
         self.assertIn("sent ✓", out)
+        self.assertIn('Checked: "كيفك" is on the screen.', out)
         self.assertEqual(phone_fast.load()[0]["uses"], 1)
+
+    def test_a_routine_says_when_the_text_it_typed_is_not_on_the_screen(self):
+        from . import phone_fast
+        self.fake.echo = False                       # this chat does not show what was sent
+        phone_fast.save([{"id": "r1", "request": "x", "pattern": "x", "values": ["كيفك"],
+                          "steps": [{"action": "open_app", "name": "WhatsApp"}, {"action": "tap", "text": "first"},
+                                    {"action": "type", "text": "{1}"}, {"action": "tap", "text": "Send"}],
+                          "uses": 0}])
+        with mock.patch("time.sleep", lambda s: None):
+            out, meta = tools.call(self.ctx(self.agent()), "phone_routine", {"id": "r1"})
+        self.assertIn("ran its 4 steps, but \"كيفك\" is not on the screen now", out)
+        self.assertNotIn("done (", out)
+        self.assertFalse(meta["done"])
 
     def test_a_routine_stops_where_the_screen_differs(self):
         from . import phone_fast

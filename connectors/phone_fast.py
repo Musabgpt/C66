@@ -10,7 +10,8 @@ Routines: when a turn that used the phone ends without an error, its steps are s
 on that item's text (numbers change, texts don't), and a text that came from the request (the contact, the message,
 the search) becomes a slot. The next request like it gets a note with the routine, and phone_routine replays all of it
 in one call, checking each step; where the screen differs it stops and shows the screen, and the turn that finishes by
-hand saves the corrected steps over the old ones.
+hand saves the corrected steps over the old ones. At its end the text the routine typed last must be on the screen: if
+it is not, the routine says so, and the turn checks by hand before it says the task is done.
 """
 import json
 import os
@@ -340,12 +341,40 @@ def _fill(step, values):
     return out
 
 
+def expected(r, values):
+    """The text the routine typed last, slots filled: once the routine has sent or searched it, it is on the screen."""
+    for s in reversed(r.get("steps") or []):
+        if s.get("action") == "type" and str(s.get("text") or "").strip():
+            text = _fill({"text": s["text"]}, values)["text"]
+            return text if _norm(text) else ""
+    return ""
+
+
+def shows(screen, text):
+    """Whether the text is on the screen (a long text may be cut or wrapped: its start is enough)."""
+    t = _norm(text)[:40]
+    return bool(t) and t in _norm(screen)
+
+
+def _settle(screen, want):
+    """The screen once the text is on it: a message can take a moment to appear after Send (up to ~2 s)."""
+    for _ in range(4):
+        if not want or shows(screen, want):
+            break
+        time.sleep(0.5)
+        try:
+            screen = read_screen()
+        except Exception:  # noqa: BLE001 - keep the last screen
+            break
+    return screen
+
+
 def install():
     @tools.tool("phone_routine",
                 "Replay a saved phone routine (a task done before on this phone) in one call: each step is checked, "
-                "and the final screen is shown. values fill its slots {1}, {2}... for this request (a contact, a "
-                "message, a search). Where the screen differs it stops and shows the screen: continue by hand from "
-                "there. action=list shows the saved routines; action=forget removes one.",
+                "and the final screen must show the text it typed last. values fill its slots {1}, {2}... for this "
+                "request (a contact, a message, a search). Where the screen differs it stops and shows the screen: "
+                "continue by hand from there. action=list shows the saved routines; action=forget removes one.",
                 {"id": tools._s("the routine's id, e.g. r3"),
                  "values": {"type": "array", "items": {"type": "string"},
                             "description": "slot values in order: {1}, {2}..."},
@@ -396,8 +425,16 @@ def install():
             elif act in ("open_app", "open_url"):
                 observe(act, s)
         touch(id)
-        screen = observe("tap", {})
+        want = expected(r, vals)
+        screen = _settle(observe("tap", {}), want)
         st["screen"] = screen
-        return ("Routine %s done (%d steps): %s\n\nScreen now:\n%s\nCheck on the screen that it worked." % (
-            id, len(done), "; ".join(done), tools.clip(screen, 7000))), {"routine": id, "done": True}
+        if want and not shows(screen, want):
+            return ("Routine %s ran its %d steps, but \"%s\" is not on the screen now, so it may not have gone "
+                    "through. Look at the screen (screen_look if you must) and fix it by hand before you say it is "
+                    "done.\n\nScreen now:\n%s" % (id, len(done), want, tools.clip(screen, 7000))), \
+                {"routine": id, "done": False}
+        check = ('Checked: "%s" is on the screen.' % want) if want else \
+            "Nothing typed to check on the screen: check the result yourself before you say it is done."
+        return ("Routine %s done (%d steps): %s\n%s\n\nScreen now:\n%s" % (
+            id, len(done), "; ".join(done), check, tools.clip(screen, 7000))), {"routine": id, "done": True}
     wrap_phone()
