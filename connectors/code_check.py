@@ -80,8 +80,12 @@ def _run(args, place, timeout=60):
         return {"error": (data.get("stderr") or data.get("stdout") or "no answer from Termux")[-400:]}
 
 
-def install_status(place):
-    """'' when nothing is being installed, else a line about it (starting the install the first time)."""
+def install_status(place, found=None):
+    """'' when nothing is being installed, else a line about it (starting the install the first time). found: what
+    lsp_once reported (where it looked), so a server installed somewhere unusual can be told apart from none."""
+    seen = ""
+    if found and found.get("looked"):
+        seen = " (node: %s; looked in %s)" % (found.get("node") or "not found", ", ".join(found["looked"][:4]))
     if place == "termux":
         from . import runtime_manager
         if _install["id"]:
@@ -91,16 +95,18 @@ def install_status(place):
                 st = {}
             if st.get("status") == "running":
                 return "The language servers are being installed in Termux (started %d s ago); this takes a few " \
-                       "minutes the first time." % (time.time() - _install["started"])
+                       "minutes the first time. Don't install them yourself; carry on and check by running the " \
+                       "code." % (time.time() - _install["started"])
             _install["id"] = None
             if st.get("exit_code") not in (0, None):
                 return "Installing the language servers in Termux failed (%s). Run in Termux: %s" % (
                     str(st.get("stdout") or st.get("stderr") or "")[-300:], INSTALL)
-            return ""
+            return "The language servers were installed but are not found%s. Run in Termux: %s" % (seen, INSTALL)
         data = runtime_manager.process_start(INSTALL)
         _install.update(id=data.get("id"), started=time.time())
         return "Installing the language servers in Termux now (pyright, typescript-language-server), once; this " \
-               "takes a few minutes. Carry on; call code_check again later."
+               "takes a few minutes. Don't install them yourself; carry on and check by running the code, and call " \
+               "code_check again later."
     return "No language server on this machine: install them once with npm install -g pyright typescript " \
            "typescript-language-server (or connect Termux on the phone, where code_check installs them itself)."
 
@@ -220,7 +226,7 @@ def install():
             notes = []
             for kind, res in results.items():
                 if res.get("missing"):
-                    notes.append(install_status(where(kind) or ("termux" if _termux() else "local")))
+                    notes.append(install_status(where(kind) or ("termux" if _termux() else "local"), res))
                 elif res.get("error"):
                     notes.append("%s: %s" % (SERVERS[kind][0], res["error"]))
             lines, n = problems(results, ctx.root)
