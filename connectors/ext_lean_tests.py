@@ -102,6 +102,7 @@ class LeanTests(unittest.TestCase):
             self.assertNotIn(gone, names)
         system = a.request_messages()[0]["content"]
         self.assertIn("Termux → GitHub → Chrome", system)
+        self.assertIn("AGENTS.md", system)                  # the project's notes: the agent keeps them for next time
         self.assertNotIn("VS Code", system)
         self.assertNotIn("Deferred tools", system)
 
