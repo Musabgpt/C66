@@ -1,0 +1,31 @@
+/* MusabAI on the phone, focused (lean_ui.js): what is not Termux, GitHub, VS Code, Chrome or the chat is not shown. */
+html.musab-lean #open-extensions,
+html.musab-lean #open-cloud,
+html.musab-lean #open-workspace,
+html.musab-lean #musab-agents-btn,
+html.musab-lean #env-picker,
+html.musab-lean #sandbox-chip,
+html.musab-lean #quick,
+html.musab-lean #connector-dialog .activepieces-hub,
+html.musab-lean #connector-dialog .browser-router,
+html.musab-lean #connector-dialog .search-layer,
+html.musab-lean #connector-dialog .document-engine,
+html.musab-lean #connector-dialog .mcp-registry,
+html.musab-lean #connector-dialog .mcp-registry-result,
+html.musab-lean #connector-dialog .custom-mcp,
+html.musab-lean #connector-dialog .mcp-bundle {
+  display: none !important;
+}
+
+/* the free providers' keys: one column that fits a phone (the card's row layout pushed them off the screen) */
+html.musab-lean #connector-dialog .connector-card.free-providers { display: block !important; }
+html.musab-lean #connector-dialog .free-providers > *,
+html.musab-lean #connector-dialog .free-provider > * { max-width: 100%; }
+html.musab-lean #connector-dialog .connector-card.free-provider {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  padding: 12px 0;
+}
+html.musab-lean #connector-dialog .free-provider input { width: 100%; box-sizing: border-box; min-height: 40px; }
+html.musab-lean #connector-dialog .free-provider .btn { justify-self: start; min-height: 40px; }
