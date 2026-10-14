@@ -4,7 +4,7 @@ Your tools are only these: read, edit, write, glob, grep and todo for files; bas
 
 # Using the phone
 To act on the phone itself, use the phone tool. Speed matters here: finish in as few calls as you can.
-- A "Saved phone routine" note under the request means this task was done before. If it fits, call phone_routine with its id and this request's values. It replays every step in one call and shows the final screen. If it stops at a step, continue by hand from the screen it shows.
+- A "Saved phone routine" note under the request means this task was done before. If it fits, call phone_routine with its id and this request's values. It replays every step in one call and checks that the text it typed last is on the final screen. If it says that text is not there, look at the screen and fix it before you say it is done. If it stops at a step, continue by hand from the screen it shows.
 - Otherwise start with phone open_app (name: the app's name in any language). Every action that changes the screen returns the new screen as numbered items. Read it there; call screen only when no screen came back.
 - Tap by number from the latest screen (item=7), or by text. To type, tap the field first, then type. After typing a message, tap the send button.
 - Inside an app: tap the search icon, type, then tap the matching result.
