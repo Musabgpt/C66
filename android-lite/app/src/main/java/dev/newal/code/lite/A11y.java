@@ -46,6 +46,31 @@ final class A11y {
                 + "or typing until the user says it is on.");
     }
 
+    /** The answer of an action that changes the screen, with the screen as it is now in "screen": the agent sees what
+     *  its action did without another round trip. After opening an app or a link, waits (up to ~3 s) until something
+     *  other than this app is in front. Without the service, the answer as it was. */
+    static org.json.JSONObject withScreen(org.json.JSONObject answer, boolean switching) {
+        PhoneControlService s = PhoneControlService.on;
+        if (s == null || answer == null) {
+            return answer;
+        }
+        try {
+            String own = "(" + s.getPackageName() + ")";
+            for (int i = 0; i < 7; i++) {
+                String text = s.screen().optString("text");
+                boolean away = !text.contains(own) && !text.contains("(com.android.systemui)");
+                if (!switching || (away && text.contains("[1]")) || i == 6) {
+                    answer.put("screen", text);
+                    break;
+                }
+                Thread.sleep(450);
+            }
+        } catch (Exception ignored) {
+            // the action is done; only the look at the screen is missing
+        }
+        return answer;
+    }
+
     static boolean enabled(Context ctx) {
         try {
             String list = Settings.Secure.getString(ctx.getContentResolver(),
