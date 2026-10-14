@@ -108,6 +108,28 @@ def read_screen(timeout=15):
     return str(r.get("text") or "")
 
 
+def compact_screen(agent):
+    """After an automatic compaction in a turn that used the phone: the screen as it is now, read again, so the summary
+    is not all the model has of the phone. Nothing when this turn did not use the phone, or the phone is away."""
+    ctx = getattr(agent, "last_ctx", None)
+    if ctx is None:
+        return ""
+    try:
+        st = _state(ctx)
+    except AttributeError:
+        return ""
+    if not (st["log"] or st["screen"]):
+        return ""
+    try:
+        screen = read_screen()
+    except Exception:  # noqa: BLE001 - the phone may be away; the compaction goes on without the screen
+        return ""
+    if not screen:
+        return ""
+    st["screen"] = screen
+    return tools.clip(screen, 7000)
+
+
 def app_name(name):
     key = re.sub(r"\s+", " ", str(name or "").strip().lower())
     key = re.sub(r"^(?:تطبيق|برنامج|app)\s+", "", key)
