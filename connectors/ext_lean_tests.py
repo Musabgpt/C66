@@ -1,4 +1,4 @@
-"""The lean phone build: only Termux, GitHub, VS Code, Chrome/web and the phone are offered; phone actions come back
+"""The lean phone build: only Termux, GitHub, code checks, Chrome/web and the phone are offered; phone actions come back
 with the new screen; a phone task that ended well becomes a routine that the next request like it replays."""
 import json
 import os
@@ -79,21 +79,22 @@ class LeanTests(unittest.TestCase):
         return __import__(__package__ + ".agent", fromlist=["ToolContext"]).ToolContext(a)
 
     # ---------------------------------------------------------------- the four, and the phone
-    def test_only_termux_github_vscode_web_and_the_phone_are_offered(self):
+    def test_only_termux_github_code_checks_web_and_the_phone_are_offered(self):
         from . import lean, connectors
         a = self.agent()
         with mock.patch.object(connectors, "names", lambda: ["github_list_repos", "termux_exec", "gmail_send",
                                                               "connected_huggingface_x_0000000000"]):
             names = [d["function"]["name"] for d in a.schemas()]
         self.assertTrue(set(names) - {"github_list_repos", "termux_exec"} <= set(lean.LEAN), names)
-        for want in ("read", "edit", "bash", "phone", "phone_routine", "web_search", "vscode_open", "runtime_exec",
+        for want in ("read", "edit", "bash", "phone", "phone_routine", "web_search", "code_check", "runtime_exec",
                      "github_monitor", "github_list_repos", "termux_exec"):
             self.assertIn(want, names)
         for gone in ("gmail_send", "connected_huggingface_x_0000000000", "background_agent", "task", "tool_search",
-                     "document_create", "self_evolve", "memory_recall", "skill"):
+                     "document_create", "self_evolve", "memory_recall", "skill", "vscode_open"):
             self.assertNotIn(gone, names)
         system = a.request_messages()[0]["content"]
-        self.assertIn("Termux → GitHub → VS Code → Chrome", system)
+        self.assertIn("Termux → GitHub → Chrome", system)
+        self.assertNotIn("VS Code", system)
         self.assertNotIn("Deferred tools", system)
 
     def test_the_full_set_comes_back_when_lean_is_off(self):
