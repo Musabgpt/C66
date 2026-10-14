@@ -39,3 +39,12 @@
   .musab-preview { padding: 0; }
   .mp-card { border-radius: 0; }
 }
+/* a picture the agent looked at, in its tool card; the Copy button on a code block in an answer */
+.mp-shot { display: block; max-width: 100%; max-height: 300px; margin: 6px 0; border: 1px solid var(--border);
+  border-radius: 10px; background: var(--bg-soft); object-fit: contain; cursor: zoom-in; }
+.msg-assistant pre { position: relative; }
+.msg-assistant pre[data-copy] { padding-top: 34px; }
+.code-copy { position: absolute; top: 6px; inset-inline-end: 6px; font: inherit; font-size: 12px; line-height: 1.4;
+  padding: 2px 9px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--fg);
+  opacity: .85; cursor: pointer; }
+.code-copy:hover { opacity: 1; }

@@ -129,6 +129,19 @@ def application_id(root):
     return ""
 
 
+# ------------------------------------------------------------------ pictures for the chat
+
+def _picture(ctx, path):
+    """{"shot": {"sid", "name"}}: the chat's copy of a picture the agent looked at ({} when it cannot be kept). The
+    phone clears its screenshot cache when the next screenshot is taken, so the copy is what the chat shows later."""
+    from . import session_images
+    try:
+        shot = session_images.keep(ctx.session.id, path)
+    except Exception:  # noqa: BLE001 - the copy is for the chat; the answer never waits on it
+        shot = None
+    return {"shot": shot} if shot else {}
+
+
 # ------------------------------------------------------------------ tools
 
 def install():
@@ -163,10 +176,11 @@ def install():
         else:
             err = ""
         if seen:
-            return seen[:6000], {"vision": True, "image": path}
+            return seen[:6000], dict({"vision": True}, **_picture(ctx, path))
         fallback = "" if image else "\nWhat the screen tool reads:\n" + screen_text()[:4000]
+        meta = dict({"vision": False}, **_picture(ctx, path))
         return ("No vision model answered%s. Add a free Gemini key (vision) in Providers, or use a model that "
-                "reads images.%s" % ((": " + err[:300]) if err else "", fallback)), {"vision": False, "image": path}
+                "reads images.%s" % ((": " + err[:300]) if err else "", fallback)), meta
 
     @tools.tool("android_test_app", "Test an Android app you built on this phone like a person would: install the APK "
                 "(the user approves Android's prompt), open the app, watch it, and report whether it started or "
@@ -241,6 +255,7 @@ def install():
         report.append("Screen text:\n" + text[:2500])
         try:
             small, _ = screenshot()
+            meta.update(_picture(ctx, small))
             seen = describe(ctx.agent, small, question or "Does this app screen look right?", " of the app %s" % app)
             if seen:
                 report.append("What the screenshot shows:\n" + seen[:2500])

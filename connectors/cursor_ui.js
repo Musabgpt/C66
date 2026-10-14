@@ -208,6 +208,7 @@
   // A preview button on every tool card that names a file (read, edit, write, patch).
   function decorate(el, ev) {
     try {
+      shotCard(el, ev);
       const m = (ev && ev.meta) || {};
       const a = (ev && ev.args) || {};
       const path = m.path || a.path || a.file_path || (m.files && m.files[0]) || "";
@@ -230,6 +231,70 @@
     const p = c.textContent.trim();
     if (PATHLIKE.test(p) && !/^\d+(\.\d+)+$/.test(p)) preview(p.replace(/^\.\//, ""));
   });
+
+  // ------------------------------------------------------------------ pictures the agent looked at
+  // A phone screenshot (or an image in the project that the agent looked at) shows in its tool card; a tap enlarges it.
+  // The engine keeps a copy with the session and serves it from /api/shot (raster files only).
+  const SHOT_SID = /^[A-Za-z0-9_\-]{1,80}$/, SHOT_NAME = /^[0-9a-f]{16}\.(jpg|png|webp)$/;
+  function showShot(url) {
+    const o = sheet(t("Screenshot", "لقطة شاشة"));
+    o.querySelector(".mp-body").innerHTML = '<img class="mp-img" alt="" src="' + esc(url) + '">';
+  }
+  function shotCard(el, ev) {
+    const shot = ev && ev.meta && ev.meta.shot;
+    // typeof first: a missing field would otherwise test as the text "undefined" and pass the pattern
+    const valid = !!shot && typeof shot.sid === "string" && typeof shot.name === "string" &&
+      SHOT_SID.test(shot.sid) && SHOT_NAME.test(shot.name);
+    if (!el || !valid || el.querySelector(".mp-shot")) return;
+    const url = "/api/shot/" + shot.sid + "/" + shot.name;
+    const img = document.createElement("img");
+    img.className = "mp-shot";
+    img.alt = t("Screenshot", "لقطة شاشة");
+    img.loading = "lazy";
+    img.src = url;
+    img.onclick = ev2 => { ev2.stopPropagation(); showShot(url); };
+    (el.querySelector(".item-body") || el).prepend(img);
+    el.classList.add("open");   // the picture is the point of the card: it shows without a tap
+  }
+
+  // ------------------------------------------------------------------ copy a code block in an answer
+  function copyText(text) {
+    if (window.NewAlPhone && NewAlPhone.setClipboard) return Promise.resolve().then(() => NewAlPhone.setClipboard(text));
+    return navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject(new Error("no clipboard"));
+  }
+  function addCopy(pre) {
+    if (pre.dataset.copy || !pre.closest(".msg-assistant")) return;   // tool output is not an answer's code
+    pre.dataset.copy = "1";
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "code-copy";
+    b.textContent = t("Copy", "نسخ");
+    b.onclick = ev => {
+      ev.stopPropagation();
+      const code = pre.querySelector("code");
+      // the code only: the button's own label is not part of it
+      const text = code ? code.textContent : [...pre.childNodes].filter(n => n !== b).map(n => n.textContent).join("");
+      copyText(text).then(() => {
+        b.textContent = t("Copied", "تم النسخ");
+        setTimeout(() => { b.textContent = t("Copy", "نسخ"); }, 1500);
+      }, () => note(t("Copy failed", "تعذّر النسخ")));
+    };
+    pre.appendChild(b);
+  }
+  let copyWatching = false;
+  function watchCode() {
+    const box = $("#messages");
+    if (!box || copyWatching || !window.MutationObserver) return;
+    copyWatching = true;
+    new MutationObserver(list => {
+      for (const m of list) for (const n of m.addedNodes) {
+        if (n.nodeType !== 1) continue;
+        if (n.tagName === "PRE") addCopy(n);
+        else if (n.querySelectorAll) n.querySelectorAll("pre").forEach(addCopy);
+      }
+    }).observe(box, { childList: true, subtree: true });
+    box.querySelectorAll("pre").forEach(addCopy);
+  }
 
   // ------------------------------------------------------------------ VS Code (code-server in Termux)
   async function openVSCode() {
@@ -279,6 +344,7 @@
   function boot() {
     renderModes();
     addVSCodeButton();
+    watchCode();
   }
   window.MusabCursor = { transform, decorate, preview, openVSCode, mode: () => mode };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot); else boot();
