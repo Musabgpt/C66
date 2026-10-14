@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -20,6 +21,8 @@ CORE = frozenset((
     "skill", "notebook_edit", "web_search", "web_fetch", "tool_search", "memory_recall", "phone", "github",
     "dependency_install", "capability_ensure", "task_checkpoint", "task_resume", "task_complete",
 ))
+CONNECTOR_CORE = frozenset(("termux_exec", "termux_result"))
+CONNECTOR_DEFER_MIN = 12   # a few native connector operations are sent whole; a connected MCP service never is
 DEFER_MIN = 20          # small tool lists are sent whole (deferral would only add a search step)
 BANG_TIMEOUT = 120
 BANG_OUTPUT = 20000
@@ -76,10 +79,31 @@ def deferrable_names(agent, defs=None):
     return [n for n in builtin if n not in CORE]
 
 
+def _connector_names(defs):
+    """Connected-service tools in defs (Termux's two stay with the core): a connected MCP service (Hugging Face,
+    Notion, Netlify...) brings up to 512 tools with long descriptions, which alone could fill a free model's context
+    and made the engine compact after every step. They are deferred like the long tail of built-ins."""
+    from . import connectors
+    ops = connectors.OPERATIONS
+    names = [_name(d) for d in defs if _name(d) in ops and _name(d) not in CONNECTOR_CORE]
+    mcp = [n for n in names if n.startswith("connected_")]
+    native = [n for n in names if not n.startswith("connected_")]
+    return mcp + (native if len(native) > CONNECTOR_DEFER_MIN else [])
+
+
+def deferred_connectors(agent, defs=None):
+    if not enabled(agent):
+        return []
+    defs = defs if defs is not None else getattr(agent, "_schemas", None)
+    defs = unique(d for d in (defs if isinstance(defs, (list, tuple)) else []) if isinstance(d, dict))
+    found = set(getattr(agent.session, "discovered_builtin_tools", None) or ())
+    return [n for n in _connector_names(defs) if n not in found]
+
+
 def finalize(agent, defs):
-    """The schemas actually sent: unique names, deferred built-ins removed."""
+    """The schemas actually sent: unique names, deferred built-ins and connected-service tools removed."""
     defs = unique(defs)
-    hidden = set(deferred_names(agent, defs))
+    hidden = set(deferred_names(agent, defs)) | set(deferred_connectors(agent, defs))
     return [d for d in defs if _name(d) not in hidden]
 
 
@@ -110,6 +134,10 @@ def search_builtin(agent, query, limit=8):
     if getattr(agent, "session", None) is None:
         return []
     hidden = deferred_names(agent, getattr(agent, "_schemas", None) or [])
+    try:
+        hidden = hidden + deferred_connectors(agent, _all_connector_defs(agent))
+    except Exception:  # noqa: BLE001 - a service that cannot list its tools leaves the built-ins searchable
+        pass
     if not hidden:
         return []
     pool = [tools.REGISTRY[n].schema() for n in hidden if n in tools.REGISTRY]
@@ -127,12 +155,31 @@ def search_builtin(agent, query, limit=8):
     return matches
 
 
+def _all_connector_defs(agent):
+    from . import connectors, tools
+    names = [n for n in (getattr(agent.session, "tool_names", None) or []) if n in connectors.OPERATIONS]
+    return [tools.REGISTRY[n].schema() for n in names if n in tools.REGISTRY]
+
+
 def deferred_note(agent):
     hidden = deferrable_names(agent, getattr(agent, "_schemas", None) or [])
-    if not hidden:
-        return ""
-    return ("\n\nDeferred tools (call tool_search with a capability to load their schemas, or call them by name): "
-            + ", ".join(sorted(hidden)) + ".")
+    note = ""
+    if hidden:
+        note = ("\n\nDeferred tools (call tool_search with a capability to load their schemas, or call them by name): "
+                + ", ".join(sorted(hidden)) + ".")
+    try:
+        services = _connector_names(_all_connector_defs(agent)) if enabled(agent) else []
+    except Exception:  # noqa: BLE001
+        services = []
+    if services:
+        from . import connectors
+        count = {}
+        for n in services:
+            label = connectors.CATALOG.get(connectors.OPERATIONS[n][0], connectors.OPERATIONS[n][0])
+            count[label] = count.get(label, 0) + 1
+        note += ("\n\nConnected service tools are deferred too (tool_search with what you need loads them): "
+                 + ", ".join("%s %d" % (k, v) for k, v in sorted(count.items())) + ".")
+    return note
 
 
 # ------------------------------------------------------------------ commands
@@ -149,6 +196,59 @@ ALIASES = {"jobs": "bashes", "tasks": "todos"}
 def _tokens(obj):
     text = obj if isinstance(obj, str) else json.dumps(obj, ensure_ascii=False)
     return max(0, len(text) // 4)
+
+
+ARABIC = re.compile(r"[؀-ۿ]")
+THINKING_ALOUD = re.compile(r"^\s*(?:The user|User wants|Let me|Let's|I need to|I'll|I will|I should|I must|I'm going|"
+                            r"I am going|Now I|Now,? let|First,? I|Okay|OK[,.]|Alright|So,? I|Next,? I)\b", re.I)
+
+
+def _user_text(agent):
+    for m in reversed(getattr(agent.session, "messages", None) or []):
+        if m.get("role") == "user" and isinstance(m.get("content"), str):
+            return m["content"]
+    return ""
+
+
+def show_reply(agent, comp, text):
+    """The model's text as the user sees it. A call written into the text is not shown (it is run), and thinking
+    aloud next to a tool call, in English while the user writes Arabic, goes to the reasoning view, not the answer."""
+    from . import repair
+    tagged = repair.tagged_call(text)
+    if tagged:
+        text = repair.strip_calls(text)
+    calls = bool(comp.tool_calls) or tagged
+    if not text:
+        agent.emit({"type": "stream_reset"})
+        return
+    if calls and not ARABIC.search(text) and (THINKING_ALOUD.match(text) or ARABIC.search(_user_text(agent))):
+        agent.emit({"type": "stream_reset"})
+        agent.emit({"type": "reasoning_delta", "text": text})
+        return
+    agent.emit({"type": "assistant", "text": text, "final": not calls})
+
+
+def compaction_helps(agent, ctx_len, limit):
+    """False when the fixed part of every request (system prompt and tool schemas) is what fills the window:
+    a summary only shortens the conversation, so it would run again after every step and lose the work in
+    progress each time (seen with a phone task on a free model). The thread then goes on; a provider that really
+    runs out of room says so and the pool moves to a model with a larger window."""
+    try:
+        fixed = _tokens(agent.schemas()) + _tokens(agent.system_prompt())
+        conv = _tokens(agent.session.messages)
+    except Exception:  # noqa: BLE001 - an agent without a request layout compacts as before
+        return True
+    threshold = float(limit or 0) * float(ctx_len or 0)
+    if threshold <= 0 or fixed < 0.5 * threshold or conv >= 0.25 * threshold:
+        return True
+    if not getattr(agent, "_fixed_context_noted", False):
+        agent._fixed_context_noted = True
+        try:
+            agent.emit({"type": "status", "text": "the tools and instructions fill most of this model's context; "
+                                                  "the conversation is kept instead of summarised"})
+        except Exception:  # noqa: BLE001
+            pass
+    return False
 
 
 def context_report(agent):
