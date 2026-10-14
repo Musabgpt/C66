@@ -53,7 +53,19 @@ def enabled(agent):
     client = getattr(agent, "client", None)
     if client is None or getattr(client, "on_device", False):
         return False                          # a phone's own small model: one more call costs minutes
-    return True
+    return not rate_limited()
+
+
+def rate_limited():
+    """A free provider said "too many requests" and is still cooling down: an extra review call now would only
+    push the turn into the same limit."""
+    try:
+        from . import provider_pool
+        data = dict(getattr(provider_pool.HEALTH, "_data", {}) or {})
+        now = provider_pool._now()
+    except Exception:  # noqa: BLE001
+        return False
+    return any(v.get("state") == "rate_limited" and float(v.get("cooldown_until") or 0) > now for v in data.values())
 
 
 def _diff(agent):

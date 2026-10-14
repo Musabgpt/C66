@@ -95,9 +95,9 @@
     const anchor = $("#musab-vscode") || $("#musab-modes");
     if (!anchor || $("#musab-files-btn")) return;
     const items = [
-      ["musab-files-btn", "📁", t("Files", "الملفات"), openFiles],
-      ["musab-term-btn", "⌨", t("Terminal", "الطرفية"), () => { const b = $("#toggle-terminal"); if (b) b.click(); }],
-      ["musab-live-btn", "🌐", t("Preview", "معاينة"), openPreview],
+      ["musab-files-btn", "📁", "Files", openFiles],
+      ["musab-term-btn", "⌨", "Terminal", () => { const b = $("#toggle-terminal"); if (b) b.click(); }],
+      ["musab-live-btn", "🌐", "Preview", openPreview],
     ];
     let after = anchor;
     items.forEach(([id, icon, label, fn]) => {
@@ -106,7 +106,9 @@
       b.id = id;
       b.className = "musab-vscode";
       b.title = label;
-      b.textContent = icon + " " + label;
+      b.setAttribute("aria-label", label);
+      // the label is its own text node, so the Arabic interface translates it as it draws it (i18n.js)
+      b.innerHTML = '<span class="mb-ic" aria-hidden="true">' + icon + '</span><span class="mb-tx">' + label + "</span>";
       b.onclick = fn;
       after.after(b);
       after = b;

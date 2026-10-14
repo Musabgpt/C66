@@ -271,6 +271,32 @@ class ExtensionTests(unittest.TestCase):
         self.assertEqual([c for c in calls if c[0] == "notify"],
                          [("notify", {"title": "MusabAI: انتهت المهمة ✓", "text": "ok\n1m 0s", "only_background": True})])
 
+    def test_waiting_approval_is_announced_once_unless_answered(self):
+        import threading
+        from . import phone_ext
+        calls = self.fake_phone(["App: x (y)"])
+        answered = threading.Event()
+        phone_ext.approval_waiting({"tool": "bash", "args": {"command": "npm test"}}, answered, delay=0.05)
+        late = threading.Event()
+        late.set()
+        phone_ext.approval_waiting({"tool": "bash", "args": {"command": "rm x"}}, late, delay=0.05)
+        for t in threading.enumerate():
+            if t.name == "musab-approval-notify":
+                t.join(5)
+        notes = [c for c in calls if c[0] == "notify"]
+        self.assertEqual(len(notes), 1)
+        self.assertIn("npm test", notes[0][1]["text"])
+        self.assertTrue(notes[0][1]["only_background"])
+
+    def test_reviewer_waits_out_a_rate_limit(self):
+        from . import provider_pool, smart
+        a = self.agent()
+        a.client = SimpleNamespace(chat=lambda *x, **k: None, on_device=False)
+        self.assertTrue(smart.enabled(a))
+        provider_pool.HEALTH._data["groq"] = {"state": "rate_limited", "cooldown_until": provider_pool._now() + 60}
+        self.addCleanup(provider_pool.HEALTH._data.pop, "groq", None)
+        self.assertFalse(smart.enabled(a))
+
     def test_application_id_from_gradle(self):
         from . import phone_ext
         self.write("android/app/build.gradle", "defaultConfig {\n  applicationId 'org.x.y'\n}")
@@ -389,6 +415,28 @@ class ExtensionTests(unittest.TestCase):
         from . import permissions
         self.assertIn("watch", permissions.GITHUB_LOOKS)
         self.assertNotIn("merge", permissions.GITHUB_LOOKS)
+
+    # ---------------------------------------------------------------- the v10 prompt
+    def test_prompt_is_focused_and_stable(self):
+        from . import agent_policy, claude_parity, prompts, tool_search
+        core = prompts.system("bash")
+        self.assertLess(len(core), 9000)
+        self.assertLess(core.index("You are MusabAI"), 80)                      # identity first
+        self.assertNotIn("phone", core)
+        small = prompts.system("bash", local=True, steps=25, phone=True)
+        self.assertLess(len(small), 2200)
+        self.assertNotIn("background_agent", small)                             # only what a small model has
+        a = self.agent()
+        first = a.request_messages()[0]["content"]
+        self.assertNotIn("Working style (like Cursor", first)                    # the rules live in the core now
+        tool_search.activate(a, "export observability events", 4)
+        self.assertEqual(a.request_messages()[0]["content"], first)              # loading a tool keeps the prefix
+        content, _ = a._user_content("fix it", [])
+        a.session.add({"role": "user", "content": content})
+        second, _ = a._user_content("and add a test", [])
+        self.assertEqual(second, "and add a test")                               # no note glued to every message
+        self.assertIn("observability_export", claude_parity.deferred_note(a))
+        self.assertTrue(agent_policy.stale_builtin("MusabAI behavior profile v9\nold"))
 
 
 if __name__ == "__main__":

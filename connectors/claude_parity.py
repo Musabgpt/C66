@@ -63,6 +63,19 @@ def deferred_names(agent, defs=None):
     return [n for n in builtin if n not in CORE and n not in found]
 
 
+def deferrable_names(agent, defs=None):
+    """The deferred list as the session started: it does not shrink when a tool is loaded, so the system message stays
+    the same for the whole thread and the provider's prompt cache keeps working."""
+    if not enabled(agent):
+        return []
+    from . import connectors
+    defs = unique(d for d in (defs if isinstance(defs, (list, tuple)) else []) if isinstance(d, dict))
+    builtin = [_name(d) for d in defs if not _name(d).startswith("mcp__") and _name(d) not in connectors.OPERATIONS]
+    if len(builtin) <= DEFER_MIN:
+        return []
+    return [n for n in builtin if n not in CORE]
+
+
 def finalize(agent, defs):
     """The schemas actually sent: unique names, deferred built-ins removed."""
     defs = unique(defs)
@@ -115,7 +128,7 @@ def search_builtin(agent, query, limit=8):
 
 
 def deferred_note(agent):
-    hidden = deferred_names(agent, getattr(agent, "_schemas", None) or [])
+    hidden = deferrable_names(agent, getattr(agent, "_schemas", None) or [])
     if not hidden:
         return ""
     return ("\n\nDeferred tools (call tool_search with a capability to load their schemas, or call them by name): "
