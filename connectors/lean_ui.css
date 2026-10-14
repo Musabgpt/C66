@@ -1,8 +1,9 @@
-/* MusabAI on the phone, focused (lean_ui.js): what is not Termux, GitHub, VS Code, Chrome or the chat is not shown. */
+/* MusabAI on the phone, focused (lean_ui.js): what is not Termux, GitHub, Chrome or the chat is not shown. */
 html.musab-lean #open-extensions,
 html.musab-lean #open-cloud,
 html.musab-lean #open-workspace,
 html.musab-lean #musab-agents-btn,
+html.musab-lean #musab-vscode,
 html.musab-lean #env-picker,
 html.musab-lean #sandbox-chip,
 html.musab-lean #quick,

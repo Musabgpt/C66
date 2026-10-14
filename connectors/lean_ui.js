@@ -1,5 +1,5 @@
-/* MusabAI on the phone, focused: the interface shows Termux, GitHub, VS Code and Chrome (Preview), and the phone's
-   chat; extensions and skills, repository (cloud) tasks, the workspace sheet, background agents, the cloud/worktree
+/* MusabAI on the phone, focused: the interface shows Termux, GitHub and Chrome (Preview), and the phone's chat;
+   VS Code, extensions and skills, repository (cloud) tasks, the workspace sheet, background agents, the cloud/worktree
    picker, MCP runtimes and other services' cards are not shown (lean.py does the same for the agent's tools). */
 (() => {
   'use strict';

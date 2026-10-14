@@ -1,8 +1,8 @@
-"""MusabAI on the phone, focused: the agent gets the tools of four things and nothing else.
+"""MusabAI on the phone, focused: the agent gets the tools of Termux, GitHub, Chrome and the phone, and nothing else.
 
 * Termux: bash, runtime_exec and runtime_process_* (node, npm, python, git and gh live there), termux_exec/result.
 * GitHub: github, github_monitor and the connected account's github_* operations.
-* VS Code: vscode_open (code-server in Termux).
+* Code checks: code_check (the language servers VS Code uses: pyright, typescript-language-server, in Termux).
 * Chrome and the web: web_search, web_fetch; pages and local servers open in Chrome with the phone's open_url.
 * The phone itself: phone, screen_look and phone_routine (saved routines replayed in one call).
 
@@ -16,7 +16,7 @@ LEAN = (
     "read", "edit", "write", "glob", "grep", "bash", "job", "todo",
     "runtime_exec", "runtime_process_start", "runtime_process_status", "runtime_process_stop",
     "github", "github_monitor",
-    "vscode_open",
+    "code_check",
     "web_search", "web_fetch",
     "phone", "screen_look", "phone_routine",
 )
