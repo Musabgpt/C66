@@ -1,7 +1,7 @@
 """Fast, accurate phone use, and routines the agent learns from what worked.
 
 Speed: a model round trip costs seconds, a local screen read milliseconds. So every action that changes the screen
-(open_app, open_url, tap, type, swipe, scroll, key) comes back with the screen as it is now: the app reads it right
+(open_app, open_url, tap, type, swipe, scroll, key, intent, settings) comes back with the screen as it is now: the app reads it right
 after the action (A11y.withScreen) and the model sees the result of its action without asking for it. After opening an
 app the app waits until that app is really in front.
 Arabic app names (واتساب، يوتيوب، كروم...) open the right app.
@@ -106,6 +106,28 @@ def foreground(screen):
 def read_screen(timeout=15):
     r = _phone().call("screen", timeout=timeout)
     return str(r.get("text") or "")
+
+
+def compact_screen(agent):
+    """After an automatic compaction in a turn that used the phone: the screen as it is now, read again, so the summary
+    is not all the model has of the phone. Nothing when this turn did not use the phone, or the phone is away."""
+    ctx = getattr(agent, "last_ctx", None)
+    if ctx is None:
+        return ""
+    try:
+        st = _state(ctx)
+    except AttributeError:
+        return ""
+    if not (st["log"] or st["screen"]):
+        return ""
+    try:
+        screen = read_screen()
+    except Exception:  # noqa: BLE001 - the phone may be away; the compaction goes on without the screen
+        return ""
+    if not screen:
+        return ""
+    st["screen"] = screen
+    return tools.clip(screen, 7000)
 
 
 def app_name(name):
