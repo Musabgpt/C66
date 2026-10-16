@@ -174,13 +174,14 @@ jobs:
           export ADB_PATH="$ANDROID_HOME/platform-tools/adb"
           python3 connectors/phase10_linux_validation.py --browser-bin /tmp/musabai-browser/bin --docling-bin /tmp/musabai-docling/bin --android-entry /tmp/musabai-android/node_modules/@us-all/android-mcp/dist/index.js
       - name: Download exact Action 125 native baseline
-        uses: actions/download-artifact@v4
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          repository: Musabgpt/NewAl-Cloud
-          run-id: 37110519785
-          name: NewAl-Cloud-Action43
-          path: baseline-action125
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p baseline-action125
+          curl -fsSL -o NewAl-Cloud-Action43.zip "https://github.com/Musabgpt/NewAl-Cloud/releases/download/action43-libraries/NewAl-Cloud-Action43.zip"
+          echo "d8a6b86b118c191a08429bfb1f0eb879c21216083731b1c4f467fe84101047a2  NewAl-Cloud-Action43.zip" | sha256sum -c -
+          unzip -q NewAl-Cloud-Action43.zip -d baseline-action125
+          test -f baseline-action125/NewAl-Cloud-Action43.apk
       - name: Verify cloud heart
         run: grep -n "kilo-auto/free" android-lite/app/src/main/java/dev/newal/code/lite/Setup.java
       - name: Retain exact Action 125 native runtime and package tested engine
