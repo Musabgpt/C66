@@ -1,5 +1,4 @@
-// NewAl Code Lite: NewAl Code on Android phones with 2-4 GB of RAM (see README.md). Its own Gradle project, so it
-// builds apart from the H33 app at the top of this repository.
+// Compatibility entry point. The root Gradle project builds this same Android app.
 pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)

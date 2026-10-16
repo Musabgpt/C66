@@ -94,7 +94,7 @@ final class WebBridge {
         act.runOnUiThread(() -> {
             act.startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
             Toast.makeText(act, Build.VERSION.SDK_INT >= 33
-                    ? "Turn on NewAl Code here. If Android says \"Restricted setting\": App info > \u22ee > Allow "
+                    ? "Turn on NewAl Code here. If Android says \"Restricted setting\": App info > ⋮ > Allow "
                     + "restricted settings, then again"
                     : "Turn on NewAl Code here (under Downloaded or Installed apps)", Toast.LENGTH_LONG).show();
         });
@@ -131,6 +131,31 @@ final class WebBridge {
         act.runOnUiThread(() -> act.requestPermissions(new String[] {Termux.PERMISSION}, 2));
     }
 
+    /**
+     * The link in one tap: Termux runs the setup command in a session the user sees (it can ask for a GitHub sign-in
+     * there). Termux refuses it until allow-external-apps is on, which the first setup turns on; the page then falls
+     * back to termuxSetup (one paste). It also starts VS Code (code-server) in Termux.
+     */
+    @JavascriptInterface
+    public String termuxRunVisible(String command) {
+        if (command == null || !(command.startsWith("curl -fsSL 'http://127.0.0.1:")
+                || "newal-vscode start".equals(command))) {
+            return "invalid";
+        }
+        if (!Termux.installed(act)) {
+            return "not installed";
+        }
+        if (!Termux.allowed(act)) {
+            return "not allowed";
+        }
+        try {
+            Termux.runVisible(act, command);
+            return "started";
+        } catch (Exception e) {
+            return String.valueOf(e.getMessage());
+        }
+    }
+
     /** Starts NewAl Code in Termux (once it was set up there), without opening Termux. */
     @JavascriptInterface
     public String termuxStart() {
@@ -138,7 +163,7 @@ final class WebBridge {
             return "not allowed";
         }
         try {
-            Termux.run(act, "newal-termux start");
+            Termux.run(act, "newal-termux-preview start");
             return "started";
         } catch (Exception e) {
             return String.valueOf(e.getMessage());
@@ -196,6 +221,17 @@ final class WebBridge {
     @JavascriptInterface
     public String takeAction() {
         return Shared.takeAction();
+    }
+
+    @JavascriptInterface
+    public void saveDocument(String url, String name, String mime) {
+        act.runOnUiThread(() -> ((MainActivity) act).saveDocument(url, name, mime));
+    }
+
+    /** Applies an explicitly selected engine after the user requests a restart. */
+    @JavascriptInterface
+    public void restartEngine() {
+        act.runOnUiThread(() -> ((MainActivity) act).restartEngine());
     }
 
     /** What another app shared ({"text", "files"}), once; "" when nothing. */

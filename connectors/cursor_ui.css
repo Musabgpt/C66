@@ -1,0 +1,50 @@
+/* MusabAI Cursor-style layer (cursor_ui.js) */
+.musab-modes { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--border); border-radius: 999px;
+  background: var(--bg-soft); margin-inline-end: 6px; }
+.musab-modes button { border: 0; background: transparent; color: var(--fg-soft); font: inherit; font-size: 12px;
+  padding: 3px 10px; border-radius: 999px; cursor: pointer; }
+.musab-modes button.on { background: var(--accent); color: var(--accent-fg); }
+.musab-vscode { border: 1px solid var(--border); background: var(--bg-soft); color: var(--fg); font: inherit;
+  font-size: 12px; padding: 3px 10px; border-radius: 999px; cursor: pointer; margin-inline-end: 6px; }
+.mp-open { border: 0; background: transparent; cursor: pointer; font-size: 13px; padding: 0 4px; opacity: .75; }
+.mp-open:hover { opacity: 1; }
+.musab-preview { position: fixed; inset: 0; z-index: 60; background: rgba(0, 0, 0, .45); display: flex;
+  align-items: stretch; justify-content: center; padding: 12px; }
+.musab-preview[hidden] { display: none; }
+.mp-card { width: min(980px, 100%); display: flex; flex-direction: column; background: var(--bg); color: var(--fg);
+  border: 1px solid var(--border); border-radius: var(--radius, 10px); overflow: hidden; box-shadow: var(--shadow); }
+.mp-card header { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+.mp-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono);
+  font-size: 13px; }
+.mp-tabs { display: flex; gap: 4px; }
+.mp-tabs button, .mp-copy { border: 1px solid var(--border); background: var(--bg-soft); color: var(--fg); font: inherit;
+  font-size: 12px; padding: 3px 9px; border-radius: 6px; cursor: pointer; }
+.mp-tabs button.on { background: var(--accent); color: var(--accent-fg); border-color: transparent; }
+.mp-x { border: 0; background: transparent; color: var(--fg); font-size: 22px; line-height: 1; cursor: pointer; padding: 0 4px; }
+.mp-body { flex: 1; overflow: auto; padding: 0; }
+.mp-body > .msg-assistant, .mp-body > p { padding: 12px 16px; }
+.mp-muted { color: var(--fg-faint); }
+.mp-code { margin: 0; padding: 10px 0; font-family: var(--mono); font-size: 12.5px; line-height: 1.5; background: var(--bg-code);
+  white-space: pre; overflow-x: auto; counter-reset: none; }
+.mp-code .ln { display: inline-block; width: 3.2em; padding-inline-end: 10px; text-align: end; color: var(--fg-faint);
+  user-select: none; }
+.mp-img { display: block; max-width: 100%; max-height: 100%; margin: 12px auto; }
+.mp-frame { width: 100%; height: 100%; min-height: 70vh; border: 0; background: #fff; }
+.mp-table { overflow: auto; }
+.mp-table table { border-collapse: collapse; font-size: 12.5px; }
+.mp-table th, .mp-table td { border: 1px solid var(--border); padding: 4px 8px; white-space: nowrap; }
+.mp-table th { background: var(--bg-soft); position: sticky; top: 0; }
+.msg-assistant code:not(pre code) { cursor: pointer; }
+@media (max-width: 600px) {
+  .musab-preview { padding: 0; }
+  .mp-card { border-radius: 0; }
+}
+/* a picture the agent looked at, in its tool card; the Copy button on a code block in an answer */
+.mp-shot { display: block; max-width: 100%; max-height: 300px; margin: 6px 0; border: 1px solid var(--border);
+  border-radius: 10px; background: var(--bg-soft); object-fit: contain; cursor: zoom-in; }
+.msg-assistant pre { position: relative; }
+.msg-assistant pre[data-copy] { padding-top: 34px; }
+.code-copy { position: absolute; top: 6px; inset-inline-end: 6px; font: inherit; font-size: 12px; line-height: 1.4;
+  padding: 2px 9px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--fg);
+  opacity: .85; cursor: pointer; }
+.code-copy:hover { opacity: 1; }

@@ -1,67 +1,355 @@
-name: NewAl-Cloud — exact Action #43 + cloud heart
+name: MusabAI — Android
 on:
   push:
-    branches: ["merge/action43-cloud"]
+    branches: ["connectors-from-125", "feat/free-providers-mcp-router", "feat/mcp-registry-core-phase1", "feat/activepieces-mcp-oauth", "feat/browser-layer-phase2", "feat/search-crawl-phase3", "feat/document-engine-phase4", "feat/memory-rag-orchestration-phase5", "feat/execution-phase6", "feat/observability-phase7", "feat/task-checkpoints-phase8", "phase1/baseline-audit", "phase2/capability-aware-provider-router", "phase3/free-provider-health-failover", "phase4/task-supervisor-watchdog", "phase5/unified-runtime-manager", "phase6/termux-localhost-bridge", "phase7/mcp-manager-lifecycle", "phase8/musab-hub-live-state", "phase9/self-update-hot-reload", "phase10/final-validation", "fix/context-continuity-claude-workflow", "feat/claude-harness-core"]
   pull_request:
     branches: ["main"]
   workflow_dispatch:
 permissions:
   contents: read
+  actions: read
+concurrency:
+  group: connectors-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      signing_mode: ${{ steps.signing.outputs.mode }}
     timeout-minutes: 120
+    env:
+      NEWAL_BUILD: ${{ github.run_number }}
+      MUSAB_CONNECTOR_BROKER_URL: ${{ vars.MUSAB_CONNECTOR_BROKER_URL || 'https://musabai-connector-server.netnyaho.chatgpt.site' }}
     steps:
       - name: Checkout NewAl-Cloud
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify repository and history contain no signing material
+        shell: bash
+        run: |
+          set -euo pipefail
+          path_pattern='(^|/)([^/]+\.(jks|keystore|p12|pfx)|keystore\.properties|signing\.properties)$'
+
+          tracked="$(git ls-files | grep -E -i "$path_pattern" || true)"
+          if [ -n "$tracked" ]; then
+            echo "::error::Tracked signing material is forbidden."
+            printf '%s\n' "$tracked"
+            exit 1
+          fi
+
+          historical_paths="$(git log --all --name-only --pretty=format: | grep -E -i "$path_pattern" | sort -u || true)"
+          if [ -n "$historical_paths" ]; then
+            echo "::error::Signing material exists in reachable Git history."
+            printf '%s\n' "$historical_paths"
+            exit 1
+          fi
+
+          private_key_pattern='BEGIN[[:space:]]+((RSA|EC|DSA)[[:space:]]+)?PRIVATE[[:space:]]+KEY'
+          if git grep -I -q -E -- "$private_key_pattern" -- .; then
+            echo "::error::Private-key text appears in the current tree."
+            exit 1
+          fi
+
+          while read -r revision; do
+            if git grep -I -q -E -- "$private_key_pattern" "$revision" -- .; then
+              echo "::error::Private-key text exists in reachable Git history at revision ${revision:0:12}."
+              exit 1
+            fi
+          done < <(git rev-list --all)
+      - name: Verify signing policy tests
+        run: python3 -m unittest connectors.test_signing_policy connectors.test_update_publication -v
+      - name: Detect persistent release signing identity
+        id: signing
+        shell: bash
+        env:
+          MUSABAI_RELEASE_SIGNING_BUNDLE: ${{ secrets.MUSABAI_RELEASE_SIGNING_BUNDLE }}
+        run: |
+          set -euo pipefail
+          if [ -z "${MUSABAI_RELEASE_SIGNING_BUNDLE:-}" ]; then
+            echo "mode=development" >> "$GITHUB_OUTPUT"
+            echo "::notice::Persistent release signing secret is not configured. CI will build a development-only APK; no publishable release APK will be produced."
+          else
+            echo "mode=release" >> "$GITHUB_OUTPUT"
+            echo "::notice::Persistent release signing identity is configured."
+          fi
       - name: Checkout exact Action #43 source
         uses: actions/checkout@v4
         with:
           repository: Musabgpt/NewAl
-          ref: ccr-e40af0a0-eec37q
+          ref: 0bf36a3b3a813dbac424ee0c4dc6341f9e3fe0d3
           path: newal-source
           fetch-depth: 1
-      - name: Install Android SDK + NDK
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Test connector panel and OAuth broker
+        run: |
+          npm ci --prefix connectors --ignore-scripts --no-audit --no-fund
+          npm test --prefix connectors
+      - name: Install test runner
+        run: python3 -m pip install pytest
+      - name: Install PDF reader for the packaged engine
+        run: python3 -m pip install --no-deps --target /tmp/newal-pdf pypdf==5.9.0
+      - name: Test durable memory and real agent integration
+        env:
+          NEWAL_UPSTREAM: ${{ github.workspace }}/newal-source
+        run: python3 -m unittest discover -s desktop/autonomy -p 'test_*.py' -v
+      - name: Install Android SDK
         run: |
           SDKMANAGER="$(command -v sdkmanager || find "$ANDROID_HOME" -type f -name sdkmanager | sort | tail -n 1)"
           yes | "$SDKMANAGER" --licenses >/dev/null || true
-          "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0" "ndk;27.3.13750724" >/dev/null
-          echo "ANDROID_NDK=$ANDROID_HOME/ndk/27.3.13750724" >> "$GITHUB_ENV"
+          "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0" >/dev/null
       - name: Supply exact Action #43 Python engine
         run: |
           rm -rf /tmp/newal-autonomy
           cp -a desktop/autonomy /tmp/newal-autonomy
           rm -rf desktop
           cp -a newal-source/desktop .
+          cp -a newal-source/docs .
           test -f desktop/newal_code/agent.py
           test -f desktop/newal_code/server.py
           test -f desktop/newal_code/tools.py
       - name: Apply autonomous memory and self-evolution layer
         run: |
           cp -a /tmp/newal-autonomy/. newal-autonomy/
+          mkdir -p desktop/autonomy
+          cp /tmp/newal-autonomy/test_memory.py desktop/autonomy/test_memory.py
           cp -a /tmp/newal-autonomy/autonomy.py desktop/newal_code/autonomy.py
           python3 newal-autonomy/apply_autonomy.py desktop/newal_code/agent.py
           python3 -m py_compile desktop/newal_code/autonomy.py desktop/newal_code/agent.py desktop/newal_code/tools.py
           grep -n "NEWAL_CLOUD_AUTONOMY_V1" desktop/newal_code/agent.py
           grep -n "memory_recall" desktop/newal_code/tools.py
-          grep -n "self_evolve" desktop/newal_code/tools.py
+      - name: Add connector runtime without replacing the original interface
+        run: |
+          python3 connectors/apply.py .
+          python3 -m compileall -q desktop/newal_code connectors
+          node --check desktop/newal_code/ui/app.js
+          node --check desktop/newal_code/ui/connectors.js
+          node --check desktop/newal_code/ui/workspace.js
+          node --check desktop/newal_code/ui/mcp_ui.js
+          node --check desktop/newal_code/ui/cursor_ui.js
+      - name: Evaluate deterministic routing contracts with Promptfoo
+        env:
+          PYTHONPATH: desktop
+          PROMPTFOO_DISABLE_TELEMETRY: "1"
+          PROMPTFOO_DISABLE_UPDATE: "1"
+          PROMPTFOO_DISABLE_REMOTE_GENERATION: "true"
+          PROMPTFOO_DISABLE_SHARING: "true"
+          PROMPTFOO_CONFIG_DIR: ${{ runner.temp }}/promptfoo
+        run: npx -y promptfoo@0.124.0 eval -c connectors/promptfooconfig.yaml --no-cache
+      - name: Test authorization contracts and original features
+        env:
+          PYTHONPATH: desktop
+          PYTHONWARNINGS: ignore
+          NEWAL_TEST_WATCHDOG: "180"
+        run: |
+          python3 -m unittest discover -s connectors -p test_connectors.py -v
+          python3 -m unittest discover -s connectors -p test_chat_shots.py -v
+          PYTHONPATH=desktop:/tmp/newal-pdf python3 -m unittest newal_code.document_tests newal_code.evolution_tests newal_code.addon_tests newal_code.memory_tests newal_code.autonomy_tests newal_code.prompt_tests newal_code.workbench_tests newal_code.mcp_config_tests newal_code.mcp_bundles_tests newal_code.mcp_registry_tests newal_code.browser_router_tests newal_code.search_router_tests newal_code.document_engine_tests newal_code.project_rag_tests newal_code.orchestrator_tests newal_code.execution_tests newal_code.runtime_manager_tests newal_code.termux_bridge_tests newal_code.git_workspace_tests newal_code.observability_tests newal_code.task_state_tests newal_code.task_supervisor_tests newal_code.provider_pool_tests newal_code.free_provider_adapters_tests newal_code.provider_keys_tests newal_code.automation_tests newal_code.auto_update_tests newal_code.managed_linux_tests newal_code.continuity_tests newal_code.tool_search_tests newal_code.tool_protocol_tests -v
+          python3 -m unittest discover -s desktop/tests -p test_newal_code.py -q
+      - name: Phase 10 real npm MCP install and stdio validation (Linux host)
+        env:
+          PYTHONPATH: desktop
+        run: python3 connectors/phase10_mcp_validation.py
+      - name: Phase 10 Linux compatibility and real browser validation
+        if: github.ref == 'refs/heads/phase10/final-validation'
+        env:
+          PYTHONPATH: desktop
+          UV_TORCH_BACKEND: cpu
+        run: |
+          python3 -m pip install uv
+          uv venv --python 3.11 /tmp/musabai-browser
+          uv venv --python 3.11 /tmp/musabai-docling
+          uv pip install --python /tmp/musabai-browser/bin/python 'browser-use==0.13.5' 'pydantic==2.12.5'
+          uv pip install --python /tmp/musabai-docling/bin/python 'docling-mcp[local]==3.3.0'
+          npm install --prefix /tmp/musabai-linux-node --ignore-scripts --no-audit --no-fund node@22.22.0
+          (cd /tmp/musabai-linux-node/node_modules/node && node installArchSpecificPackage.js)
+          /tmp/musabai-linux-node/node_modules/node/bin/node --version
+          export PATH="/tmp/musabai-linux-node/node_modules/node/bin:$PATH"
+          npm install --prefix /tmp/musabai-android --no-audit --no-fund --omit=dev @us-all/android-mcp@1.14.4
+          export ADB_PATH="$ANDROID_HOME/platform-tools/adb"
+          python3 connectors/phase10_linux_validation.py --browser-bin /tmp/musabai-browser/bin --docling-bin /tmp/musabai-docling/bin --android-entry /tmp/musabai-android/node_modules/@us-all/android-mcp/dist/index.js
+      - name: Download exact Action 125 native baseline
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: Musabgpt/NewAl-Cloud
+          run-id: 37110519785
+          name: NewAl-Cloud-Action43
+          path: baseline-action125
       - name: Verify cloud heart
         run: grep -n "kilo-auto/free" android-lite/app/src/main/java/dev/newal/code/lite/Setup.java
-      - name: Prepare exact Action #43 Android runtime
+      - name: Retain exact Action 125 native runtime and package tested engine
         run: |
-          chmod +x android-lite/native/prepare.sh
-          android-lite/native/prepare.sh arm64-v8a x86_64
+          python3 connectors/package_baseline.py baseline-action125/NewAl-Cloud-Action43.apk
+          python3 connectors/verify_package.py android-lite/app/build/generated/newal-assets/newal_code.zip
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.7"
-      - name: Build exact Action #43 APK
+      - name: Build MusabAI APK with persistent release signing
+        if: steps.signing.outputs.mode == 'release'
+        shell: bash
+        env:
+          MUSABAI_RELEASE_SIGNING_BUNDLE: ${{ secrets.MUSABAI_RELEASE_SIGNING_BUNDLE }}
         run: |
-          gradle -p android-lite :app:assembleRelease --stacktrace
-          cp android-lite/app/build/outputs/apk/release/app-release.apk NewAl-Cloud-Action43.apk
-          ls -lh NewAl-Cloud-Action43.apk
-      - uses: actions/upload-artifact@v4
+          set -euo pipefail
+          SIGNING_DIR="$RUNNER_TEMP/musabai-signing"
+          BUNDLE_FILE="$SIGNING_DIR/bundle.json"
+          KEYSTORE_FILE="$SIGNING_DIR/release.jks"
+          STORE_PASSWORD_FILE="$SIGNING_DIR/store_password"
+          KEY_ALIAS_FILE="$SIGNING_DIR/key_alias"
+          KEY_PASSWORD_FILE="$SIGNING_DIR/key_password"
+          cleanup() {
+            rm -rf "$SIGNING_DIR"
+          }
+          trap cleanup EXIT HUP INT TERM
+          umask 077
+          mkdir -p "$SIGNING_DIR"
+          chmod 700 "$SIGNING_DIR"
+
+          printf '%s' "$MUSABAI_RELEASE_SIGNING_BUNDLE" | base64 --decode > "$BUNDLE_FILE"
+          test -s "$BUNDLE_FILE"
+
+          python3 - "$BUNDLE_FILE" "$KEYSTORE_FILE" "$STORE_PASSWORD_FILE" "$KEY_ALIAS_FILE" "$KEY_PASSWORD_FILE" <<'PY'
+          import base64
+          import binascii
+          import json
+          import os
+          import pathlib
+          import sys
+
+          bundle_path, keystore_path, store_path, alias_path, key_path = map(pathlib.Path, sys.argv[1:])
+          try:
+              bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
+          except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+              raise SystemExit(f"Invalid signing bundle: {exc}")
+
+          required = ("keystore_b64", "store_password", "key_alias", "key_password")
+          missing = [name for name in required if not isinstance(bundle.get(name), str) or not bundle[name]]
+          if missing:
+              raise SystemExit("Signing bundle is missing required fields: " + ", ".join(missing))
+
+          for name in ("store_password", "key_alias", "key_password"):
+              value = bundle[name]
+              if "\n" in value or "\r" in value or "\x00" in value:
+                  raise SystemExit(f"Signing bundle field {name} contains forbidden control characters")
+
+          try:
+              keystore_bytes = base64.b64decode(bundle["keystore_b64"], validate=True)
+          except (ValueError, binascii.Error) as exc:
+              raise SystemExit(f"Signing bundle keystore is not valid base64: {exc}")
+          if not keystore_bytes:
+              raise SystemExit("Signing bundle keystore is empty")
+
+          keystore_path.write_bytes(keystore_bytes)
+          store_path.write_text(bundle["store_password"], encoding="utf-8")
+          alias_path.write_text(bundle["key_alias"], encoding="utf-8")
+          key_path.write_text(bundle["key_password"], encoding="utf-8")
+          for path in (keystore_path, store_path, alias_path, key_path):
+              os.chmod(path, 0o600)
+          PY
+
+          export MUSABAI_RELEASE_STORE_FILE="$KEYSTORE_FILE"
+          export MUSABAI_RELEASE_STORE_PASSWORD="$(cat "$STORE_PASSWORD_FILE")"
+          export MUSABAI_RELEASE_KEY_ALIAS="$(cat "$KEY_ALIAS_FILE")"
+          export MUSABAI_RELEASE_KEY_PASSWORD="$(cat "$KEY_PASSWORD_FILE")"
+          printf '::add-mask::%s\n' "$MUSABAI_RELEASE_STORE_PASSWORD"
+          printf '::add-mask::%s\n' "$MUSABAI_RELEASE_KEY_ALIAS"
+          printf '::add-mask::%s\n' "$MUSABAI_RELEASE_KEY_PASSWORD"
+
+          gradle :app:testReleaseUnitTest :app:assembleRelease --stacktrace
+          python3 connectors/verify_package.py android-lite/app/build/generated/newal-assets/newal_code.zip
+          cp android-lite/app/build/outputs/apk/release/app-release.apk MusabAI-Connectors.apk
+          stat -c 'APK_BYTES=%s' MusabAI-Connectors.apk
+          sha256sum MusabAI-Connectors.apk | tee MusabAI-Connectors.apk.sha256
+
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools/35.0.0" -type f -name apksigner | head -n 1)"
+          test -n "$APKSIGNER"
+          "$APKSIGNER" verify --verbose --print-certs MusabAI-Connectors.apk | tee signing-report.txt
+
+          actual="$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' signing-report.txt | head -n 1 | tr '[:upper:]' '[:lower:]' | tr -d ':[:space:]')"
+          expected="$(tr '[:upper:]' '[:lower:]' < android-lite/signing-cert-sha256.txt | tr -d ':[:space:]')"
+          if [[ ! "$actual" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "::error::Unable to extract a valid APK signing certificate SHA256 fingerprint."
+            exit 1
+          fi
+          if [[ ! "$expected" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "::error::android-lite/signing-cert-sha256.txt must contain exactly one SHA256 certificate fingerprint."
+            exit 1
+          fi
+          if [ "$actual" != "$expected" ]; then
+            echo "::error::APK signing identity does not match the approved persistent fingerprint."
+            exit 1
+          fi
+          printf 'SIGNING_CERT_SHA256=%s\n' "$actual"
+          ls -lh MusabAI-Connectors.apk
+      - name: Build development-only APK when release identity is unavailable
+        if: steps.signing.outputs.mode == 'development'
+        shell: bash
+        env:
+          MUSABAI_ALLOW_DEBUG_SIGNING: "true"
+        run: |
+          set -euo pipefail
+          gradle :app:testReleaseUnitTest :app:assembleRelease --stacktrace
+          python3 connectors/verify_package.py android-lite/app/build/generated/newal-assets/newal_code.zip
+          cp android-lite/app/build/outputs/apk/release/app-release.apk MusabAI-Connectors-DEV.apk
+          stat -c 'DEV_APK_BYTES=%s' MusabAI-Connectors-DEV.apk
+          sha256sum MusabAI-Connectors-DEV.apk | tee MusabAI-Connectors-DEV.apk.sha256
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools/35.0.0" -type f -name apksigner | head -n 1)"
+          test -n "$APKSIGNER"
+          "$APKSIGNER" verify --verbose --print-certs MusabAI-Connectors-DEV.apk | tee signing-report-development.txt
+          echo "::warning::Development APK only. It is not a production/update signing baseline."
+      - name: Build verified Phase 9 hot-update artifact
+        run: |
+          python3 connectors/build_update_bundle.py desktop/newal_code MusabAI-Hot-Update.zip
+          cat MusabAI-Hot-Update.zip.sha256
+          stat -c 'HOT_UPDATE_BYTES=%s' MusabAI-Hot-Update.zip
+      - name: Upload persistent release artifact
+        if: steps.signing.outputs.mode == 'release'
+        uses: actions/upload-artifact@v4
         with:
-          name: NewAl-Cloud-Action43
-          path: NewAl-Cloud-Action43.apk
+          name: MusabAI-Connectors
+          path: |
+            MusabAI-Connectors.apk
+            MusabAI-Connectors.apk.sha256
+            signing-report.txt
+            MusabAI-Hot-Update.zip
+            MusabAI-Hot-Update.zip.sha256
           compression-level: 0
           retention-days: 14
+      - name: Upload development-only artifact
+        if: steps.signing.outputs.mode == 'development'
+        uses: actions/upload-artifact@v4
+        with:
+          name: MusabAI-Connectors-Development
+          path: |
+            MusabAI-Connectors-DEV.apk
+            MusabAI-Connectors-DEV.apk.sha256
+            signing-report-development.txt
+            MusabAI-Hot-Update.zip
+            MusabAI-Hot-Update.zip.sha256
+          compression-level: 0
+          retention-days: 14
+
+  publish-phase10-update:
+    needs: build
+    if: github.ref == 'refs/heads/phase10/final-validation' && needs.build.outputs.signing_mode == 'release'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: MusabAI-Connectors
+          path: verified-artifact
+      - name: Publish verified Phase 10 engine and automatic update channel
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MUSABAI_ARTIFACT_DIR: verified-artifact
+        run: python3 connectors/publish_update_channel.py

@@ -1,0 +1,91 @@
+{
+  "github": [
+    "GITHUB",
+    "https://github.com/login/oauth/authorize",
+    "https://github.com/login/oauth/access_token",
+    "repo read:user user:email"
+  ],
+  "gitlab": [
+    "GITLAB",
+    "https://gitlab.com/oauth/authorize",
+    "https://gitlab.com/oauth/token",
+    "api"
+  ],
+  "drive": [
+    "GOOGLE",
+    "https://accounts.google.com/o/oauth2/v2/auth",
+    "https://oauth2.googleapis.com/token",
+    "openid email profile https://www.googleapis.com/auth/drive.file"
+  ],
+  "gmail": [
+    "GOOGLE",
+    "https://accounts.google.com/o/oauth2/v2/auth",
+    "https://oauth2.googleapis.com/token",
+    "openid email profile https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.compose"
+  ],
+  "calendar": [
+    "GOOGLE",
+    "https://accounts.google.com/o/oauth2/v2/auth",
+    "https://oauth2.googleapis.com/token",
+    "openid email profile https://www.googleapis.com/auth/calendar"
+  ],
+  "docs": [
+    "GOOGLE",
+    "https://accounts.google.com/o/oauth2/v2/auth",
+    "https://oauth2.googleapis.com/token",
+    "openid email profile https://www.googleapis.com/auth/documents"
+  ],
+  "sheets": [
+    "GOOGLE",
+    "https://accounts.google.com/o/oauth2/v2/auth",
+    "https://oauth2.googleapis.com/token",
+    "openid email profile https://www.googleapis.com/auth/spreadsheets"
+  ],
+  "notion": [
+    "NOTION",
+    "https://api.notion.com/v1/oauth/authorize",
+    "https://api.notion.com/v1/oauth/token",
+    ""
+  ],
+  "gitlabmcp": [
+    "GITLAB_MCP",
+    "https://gitlab.com/oauth/authorize",
+    "https://gitlab.com/oauth/token",
+    "mcp",
+    {"auth": "none", "resource": "https://gitlab.com/api/v4/mcp", "transport": "mcp"}
+  ],
+  "notionmcp": [
+    "NOTION_MCP",
+    "https://mcp.notion.com/authorize",
+    "https://mcp.notion.com/token",
+    "default",
+    {"auth": "none", "resource": "https://mcp.notion.com", "transport": "mcp"}
+  ],
+  "netlify": [
+    "NETLIFY_MCP",
+    "https://mcp.netlify.com/oauth-server/auth",
+    "https://mcp.netlify.com/oauth-server/token",
+    "offline_access read write",
+    {"auth": "none", "resource": "https://mcp.netlify.com/mcp", "transport": "mcp"}
+  ],
+  "miro": [
+    "MIRO_MCP",
+    "https://mcp.miro.com/authorize",
+    "https://mcp.miro.com/token",
+    "boards:read boards:write openid email",
+    {"auth": "client_secret_post", "resource": "https://mcp.miro.com/", "transport": "mcp"}
+  ],
+  "huggingface": [
+    "HF_MCP",
+    "https://huggingface.co/oauth/authorize",
+    "https://huggingface.co/oauth/token",
+    "openid profile read-mcp",
+    {"auth": "client_secret_post", "resource": "https://huggingface.co/mcp", "transport": "mcp"}
+  ],
+  "figma": [
+    "FIGMA",
+    "https://www.figma.com/oauth",
+    "https://api.figma.com/v1/oauth/token",
+    "file_content:read file_comments:read file_comments:write current_user:read"
+  ]
+}

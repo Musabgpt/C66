@@ -1,0 +1,30 @@
+/* MusabAI on a phone: everything on screen, touch targets near Android's 48dp, code left to right in Arabic. */
+.musab-vscode .mb-ic { margin-inline-end: 4px; }
+
+@media (max-width: 700px) {
+  /* the top bar: icons only, so Review and its count are never pushed off the screen */
+  #topbar { gap: 6px; padding: 0 8px; }
+  #topbar .title-wrap .chip { display: none; }
+  .top-actions { gap: 2px; flex: none; }
+  .top-actions .btn > span:not(#changes-count), .top-actions .picker-btn-plain > span { display: none; }
+  .top-actions .btn, .top-actions .picker-btn-plain { min-height: 44px; padding: 0 10px; }
+  .top-actions .icon-btn { min-width: 44px; min-height: 44px; }
+  #toggle-sidebar { min-width: 44px; min-height: 44px; }
+
+  /* the tool buttons under the composer: icon-sized, 44px, two short rows at most */
+  .musab-vscode { min-width: 44px; min-height: 44px; padding: 0 10px; margin-inline-end: 0; font-size: 18px; }
+  .musab-vscode .mb-tx { display: none; }
+  .musab-vscode .mb-ic { margin: 0; }
+  .musab-modes button { min-height: 40px; padding: 0 14px; font-size: 13px; }
+  .composer-foot { gap: 6px; row-gap: 8px; }
+
+  /* the review pane: its commit form fits the width */
+  #commit-form { flex-wrap: wrap; }
+  #commit-form input { flex: 1 1 100%; min-width: 0; }
+  #commit-form select { flex: 1; }
+}
+
+/* Arabic interface: text that starts in English (errors, tool output, names) runs left to right */
+[dir="rtl"] .notice, [dir="rtl"] .item-body, [dir="rtl"] .mf-toast pre, [dir="rtl"] .mf-answer,
+[dir="rtl"] .mf-log, [dir="rtl"] #input { unicode-bidi: plaintext; }
+[dir="rtl"] .item-body pre, [dir="rtl"] .notice.error { direction: ltr; text-align: left; }

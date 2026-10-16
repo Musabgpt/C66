@@ -17,7 +17,7 @@ import java.net.Socket;
 final class Termux {
     static final String PKG = "com.termux";
     static final String PERMISSION = "com.termux.permission.RUN_COMMAND";
-    static final int PORT = 8791;
+    static final int PORT = 8798;
     private static final String BASH = "/data/data/com.termux/files/usr/bin/bash";
 
     private Termux() {
@@ -51,6 +51,25 @@ final class Termux {
         if (i != null) {
             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             c.startActivity(i);
+        }
+    }
+
+    /**
+     * Runs a bash command in a new Termux session the user sees (a setup that may ask for a GitHub sign-in): needs the
+     * permission and allow-external-apps in Termux.
+     */
+    static void runVisible(Context c, String command) {
+        Intent i = new Intent("com.termux.RUN_COMMAND");
+        i.setClassName(PKG, "com.termux.app.RunCommandService");
+        i.putExtra("com.termux.RUN_COMMAND_PATH", BASH);
+        i.putExtra("com.termux.RUN_COMMAND_ARGUMENTS", new String[] {"-lc", command});
+        i.putExtra("com.termux.RUN_COMMAND_WORKDIR", "/data/data/com.termux/files/home");
+        i.putExtra("com.termux.RUN_COMMAND_BACKGROUND", false);
+        i.putExtra("com.termux.RUN_COMMAND_SESSION_ACTION", "0");
+        if (Build.VERSION.SDK_INT >= 26) {
+            c.startForegroundService(i);
+        } else {
+            c.startService(i);
         }
     }
 

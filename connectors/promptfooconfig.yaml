@@ -1,0 +1,31 @@
+description: MusabAI Phase 7 deterministic routing contracts
+prompts:
+  - "{{task}}"
+providers:
+  - "exec: python3 promptfoo_provider.py"
+tests:
+  - vars:
+      task: "Build and test this Android APK in Termux"
+    assert:
+      - type: contains
+        value: "termux_exec"
+      - type: contains
+        value: "execution_plan"
+  - vars:
+      task: "Inspect the git repository diff before committing"
+    assert:
+      - type: contains
+        value: "git_status"
+  - vars:
+      task: "Search the web and inspect the current project before editing code"
+    assert:
+      - type: contains
+        value: "search_router"
+      - type: contains
+        value: "project_rag_search"
+
+  - vars:
+      task: "Continue the previous task from where it stopped"
+    assert:
+      - type: contains
+        value: "task_resume"

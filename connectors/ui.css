@@ -1,0 +1,30 @@
+.connector-panel { width: min(780px, calc(100vw - 24px)); max-height: calc(100dvh - 32px); overflow-y: auto; padding: 18px; }
+.connector-card { display: flex; gap: 16px; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border, #8885); padding: 16px 0; }
+.connector-card strong { display: block; margin-bottom: 6px; }
+.connector-card .muted, .connector-card small { overflow-wrap: anywhere; }
+.connector-state { margin: 6px 0; }
+.connector-state.connected { color: #189f65; }
+.connector-actions { display: flex; gap: 8px; flex-wrap: wrap; flex-shrink: 0; }
+.workspace-tabs { display: flex; gap: 8px; margin: 16px 0; border-bottom: 1px solid var(--border, #8885); padding-bottom: 8px; }
+.workspace-tabs [aria-selected="true"] { font-weight: bold; box-shadow: inset 0 -3px currentColor; }
+.workspace-panel { min-width: 0; }
+.workspace-panel .connector-actions { align-items: center; margin: 12px 0; }
+.workspace-panel input[type="search"] { min-width: 0; flex: 1; }
+.workspace-toggle { display: inline-flex; align-items: center; gap: 8px; }
+.workspace-detail { min-width: 0; overflow-wrap: anywhere; }
+.workspace-evidence { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 100%; }
+.workspace-failure { border-bottom: 1px solid var(--border, #8885); padding: 8px 0; }
+.workspace-goal { display: block; width: 100%; box-sizing: border-box; margin: 8px 0; min-height: 90px; }
+@media(max-width: 560px) { .connector-card { align-items: stretch; flex-direction: column; gap: 8px; } .connector-actions .btn { min-height: 44px; flex: 1; } }
+.custom-mcp { display: block; }
+.custom-mcp form { display: grid; gap: 12px; }
+.custom-mcp label { display: grid; gap: 5px; }
+.custom-mcp input { width: 100%; min-width: 0; box-sizing: border-box; padding: 10px; }
+.custom-mcp p { overflow-wrap: anywhere; }
+
+.connector-feedback { white-space: pre-wrap; overflow-wrap: anywhere; margin-block: 8px; }
+.connector-feedback:empty { display: none; }
+#connector-refresh { margin-inline-start: auto; }
+
+.workspace-tabs { overflow-x: auto; }
+.workspace-tabs .btn { white-space: nowrap; }

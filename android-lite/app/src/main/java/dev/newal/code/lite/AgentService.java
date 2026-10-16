@@ -17,9 +17,13 @@ import android.util.Log;
  */
 public class AgentService extends Service {
     private static final String CHANNEL = "newal";
+    static final String RETRY = "dev.newal.code.lite.RETRY";
+    static final String START_RESULT = "dev.newal.code.lite.START_RESULT";
     private static Process python;
     private static volatile boolean stopping;
     static volatile String error = "";
+    private final java.util.concurrent.ExecutorService starts = java.util.concurrent.Executors
+            .newSingleThreadExecutor(task -> new Thread(task, "newal-start"));
 
     @Override
     public IBinder onBind(Intent intent) {
@@ -30,7 +34,38 @@ public class AgentService extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
         stopping = false;
         foreground();
-        new Thread(this::ensureRunning, "newal-start").start();
+        android.os.ResultReceiver result = intent == null ? null : intent.getParcelableExtra(START_RESULT);
+        starts.execute(() -> {
+            try {
+                synchronized (AgentService.class) {
+                    if (intent != null && RETRY.equals(intent.getAction())) {
+                        Process previous = python;
+                        if (previous != null) {
+                            previous.destroy();
+                            if (!previous.waitFor(2, java.util.concurrent.TimeUnit.SECONDS)) {
+                                previous.destroyForcibly();
+                                if (!previous.waitFor(2, java.util.concurrent.TimeUnit.SECONDS))
+                                    throw new java.io.IOException("The previous engine did not stop");
+                            }
+                        }
+                        python = null;
+                        restarts.clear();
+                    }
+                    ensureRunning();
+                    if (stopping && error.isEmpty()) error = "Engine service stopped";
+                }
+            } catch (Exception e) {
+                error = String.valueOf(e);
+                if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+                Log.e("NewAlCode", "cannot restart", e);
+            } finally {
+                if (result != null) {
+                    android.os.Bundle detail = new android.os.Bundle();
+                    detail.putString("error", error);
+                    result.send(error.isEmpty() ? 0 : 1, detail);
+                }
+            }
+        });
         return START_STICKY;
     }
 
@@ -54,20 +89,32 @@ public class AgentService extends Service {
         }
     }
 
-    private synchronized void ensureRunning() {
-        if (python != null && python.isAlive()) {
-            return;
-        }
-        try {
-            Setup s = new Setup(this);
-            s.prepare();
-            PhoneServer.start(this, s.key());
-            python = s.start();
+    private void ensureRunning() {
+        synchronized (AgentService.class) {
+            if (stopping) return;
             error = "";
-            watch(python);
-        } catch (Exception e) {
-            error = String.valueOf(e);
-            Log.e("NewAlCode", "cannot start", e);
+            if (python != null && python.isAlive()) {
+                return;
+            }
+            try {
+                Setup s = new Setup(this);
+                s.prepare();
+                PhoneServer.start(this, s.key());
+                python = s.start();
+                error = "";
+                watch(python);
+            } catch (Exception e) {
+                error = String.valueOf(e);
+                Setup setup = new Setup(this);
+                if (CandidateSelection.rollbackPending(setup.home, String.valueOf(BuildConfig.VERSION_CODE),
+                        Setup.UPDATE_COMPAT, error)) {
+                    Log.w("NewAlCode", "pending revision failed to start; rolled back", e);
+                    error = "";
+                    ensureRunning();
+                } else {
+                    Log.e("NewAlCode", "cannot start", e);
+                }
+            }
         }
     }
 
@@ -80,10 +127,18 @@ public class AgentService extends Service {
         new Thread(() -> {
             try {
                 int code = p.waitFor();
-                if (stopping) {
-                    return;
+                synchronized (AgentService.class) {
+                    if (stopping || python != p) return;
                 }
                 Log.w("NewAlCode", "NewAl Code ended (" + code + "): starting it again");
+                Setup setup = new Setup(this);
+                if (CandidateSelection.rollbackPending(setup.home, String.valueOf(BuildConfig.VERSION_CODE),
+                        Setup.UPDATE_COMPAT, "Engine exited during activation (" + code + ")")) {
+                    Log.w("NewAlCode", "pending revision crashed; restoring previous verified engine");
+                    Thread.sleep(500);
+                    ensureRunning();
+                    return;
+                }
                 long now = System.currentTimeMillis();
                 synchronized (AgentService.class) {
                     restarts.removeIf(t -> now - t > 600_000);
@@ -105,8 +160,12 @@ public class AgentService extends Service {
     @Override
     public void onDestroy() {
         stopping = true;
-        if (python != null) {
-            python.destroy();          // SIGTERM: NewAl Code stops its models, then exits
+        starts.shutdownNow();
+        synchronized (AgentService.class) {
+            if (python != null) {
+                python.destroy();          // SIGTERM: NewAl Code stops its models, then exits
+                python = null;
+            }
         }
         super.onDestroy();
     }

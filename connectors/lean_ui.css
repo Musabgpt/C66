@@ -1,0 +1,88 @@
+/* MusabAI on the phone, focused (lean_ui.js): what is not Termux, GitHub, Chrome or the chat is not shown. */
+html.musab-lean #open-extensions,
+html.musab-lean #open-cloud,
+html.musab-lean #open-workspace,
+html.musab-lean #musab-agents-btn,
+html.musab-lean #musab-vscode,
+html.musab-lean #env-picker,
+html.musab-lean #sandbox-chip,
+html.musab-lean #quick,
+html.musab-lean #connector-dialog .activepieces-hub,
+html.musab-lean #connector-dialog .browser-router,
+html.musab-lean #connector-dialog .search-layer,
+html.musab-lean #connector-dialog .document-engine,
+html.musab-lean #connector-dialog .mcp-registry,
+html.musab-lean #connector-dialog .mcp-registry-result,
+html.musab-lean #connector-dialog .custom-mcp,
+html.musab-lean #connector-dialog .mcp-bundle {
+  display: none !important;
+}
+
+/* the free providers' keys: one column that fits a phone (the card's row layout pushed them off the screen) */
+html.musab-lean #connector-dialog .connector-card.free-providers { display: block !important; }
+html.musab-lean #connector-dialog .free-providers > *,
+html.musab-lean #connector-dialog .free-provider > * { max-width: 100%; }
+html.musab-lean #connector-dialog .connector-card.free-provider {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  padding: 12px 0;
+}
+html.musab-lean #connector-dialog .free-provider input { width: 100%; box-sizing: border-box; min-height: 40px; }
+html.musab-lean #connector-dialog .free-provider .btn { justify-self: start; min-height: 40px; }
+
+/* ---- the look of the chat: presentation only (no element, text, request or model input changes).
+   This file loads last, so its rules win over the ones before it. */
+
+/* the small grey text (the footer, times, counts) reads at 4.5:1 or more: 5.0:1 on white, 4.9:1 on the dark page */
+:root { --fg-faint: #6b6b75; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --fg-faint: #8b8b95; } }
+:root[data-theme="dark"] { --fg-faint: #8b8b95; }
+
+/* the selected mode: white text on a green that reads (5.3:1; the plain accent is 3.2:1) */
+.musab-modes button.on { background: #0b7a5f; }
+
+/* the full-access warning, in the dark too (its light red is 2.6:1 on the dark page) */
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) #access-chip { color: #ff8a80; border-color: rgba(255, 138, 128, .5); } }
+:root[data-theme="dark"] #access-chip { color: #ff8a80; border-color: rgba(255, 138, 128, .5); }
+
+/* keyboard focus shows; the composer shows its focus with its border instead */
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+#input:focus-visible { outline: 0; }
+
+/* less motion, when asked: the working shimmer and the caret stop; the spinner stays, it shows that work goes on */
+@media (prefers-reduced-motion: reduce) {
+  .shimmer, .caret::after { animation: none; }
+}
+
+@media (max-width: 700px) {
+  /* the page: more of the width goes to the text */
+  #messages { padding: 16px 14px 10px; }
+  #composer-wrap { padding: 0 10px 8px; }
+
+  /* the answer and the request: Arabic reads better a size up, with more air between its lines */
+  .msg-assistant { font-size: 15px; line-height: 1.7; }
+  .msg-user .bubble { font-size: 15px; line-height: 1.65; }
+  .item-head { min-height: 36px; margin: 0 -8px; padding: 6px 8px; }
+
+  /* the composer card: 40px targets; the input at 16px */
+  #composer { padding: 10px 10px 6px 14px; border-radius: 20px; }
+  #input { font-size: 16px; }
+  .composer-bar { gap: 6px; margin-top: 4px; }
+  .composer-bar .left, .composer-bar .right { gap: 2px; }
+  .composer-bar .picker-btn { min-height: 40px; padding: 0 10px; }
+  #attach, #mic { width: 40px; height: 40px; padding: 0; }
+  #send { width: 40px; height: 40px; }
+
+  /* under the composer: the modes take the first line; the tools and the status chips the second */
+  .composer-foot { gap: 6px; padding: 8px 2px 0; }
+  .musab-modes { display: flex; flex: 1 1 100%; margin-inline-end: 0; }
+  .musab-modes button { flex: 1 1 0; min-height: 40px; font-size: 14px; }
+  .musab-vscode { width: 40px; height: 40px; min-width: 40px; min-height: 40px; padding: 0; justify-content: center;
+    border: 1px solid var(--border); border-radius: 12px; background: var(--bg-soft); }
+  .musab-vscode .mb-ic { font-size: 16px; line-height: 1; }
+  #access-chip { min-height: 32px; padding: 0 10px; border-radius: 999px; font-size: 12.5px; }
+
+  /* the top bar's buttons share one look: no frame, unless a button has something to show */
+  #open-picker > .btn, #toggle-review.btn:not(.has) { border-color: transparent; background: transparent; }
+}

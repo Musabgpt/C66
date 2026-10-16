@@ -4,6 +4,9 @@ import android.accessibilityservice.AccessibilityService;
 import android.accessibilityservice.GestureDescription;
 import android.graphics.Path;
 import android.graphics.Rect;
+import android.graphics.Bitmap;
+import java.io.File;
+import java.io.FileOutputStream;
 import android.os.Build;
 import android.os.Bundle;
 import android.util.DisplayMetrics;
@@ -95,6 +98,50 @@ public class PhoneControlService extends AccessibilityService {
         JSONObject o = Phone.ok(sb.toString().trim());
         o.put("items", items.size());
         return o;
+    }
+
+    synchronized JSONObject screenshot() throws Exception {
+        if (Build.VERSION.SDK_INT < 30) throw new IllegalStateException("screenshots need Android 11");
+        CountDownLatch done = new CountDownLatch(1);
+        final Bitmap[] result = {null};
+        final int[] failure = {-1};
+        dispatchScreenshot(done, result, failure);
+        if (!done.await(12, TimeUnit.SECONDS) || result[0] == null)
+            throw new IllegalStateException("Android did not return a screenshot (code " + failure[0] + ")");
+        long stamp = System.currentTimeMillis();
+        File out = new File(getCacheDir(), "musabai-screen-" + stamp + ".png");
+        // a small JPEG next to it: what a vision model is shown (a full PNG is megabytes)
+        File small = new File(getCacheDir(), "musabai-screen-" + stamp + "-small.jpg");
+        Bitmap full = result[0];
+        int width = full.getWidth(), height = full.getHeight();
+        try {
+            try (FileOutputStream stream = new FileOutputStream(out)) {
+                if (!full.compress(Bitmap.CompressFormat.PNG, 100, stream)) throw new IllegalStateException("screenshot encoding failed");
+            }
+            float k = Math.min(1f, 720f / Math.max(1, width));
+            Bitmap scaled = k < 1f ? Bitmap.createScaledBitmap(full, Math.max(1, Math.round(width * k)),
+                    Math.max(1, Math.round(height * k)), true) : full;
+            try (FileOutputStream stream = new FileOutputStream(small)) {
+                scaled.compress(Bitmap.CompressFormat.JPEG, 72, stream);
+            } finally { if (scaled != full) scaled.recycle(); }
+        } finally { full.recycle(); }
+        File[] old = getCacheDir().listFiles((dir, name) -> name.startsWith("musabai-screen-") && !name.contains(String.valueOf(stamp)));
+        if (old != null) for (File f : old) if (f.lastModified() < stamp - 600_000L) f.delete();
+        JSONObject o = Phone.ok("screenshot saved: " + out.getAbsolutePath());
+        o.put("path", out.getAbsolutePath()); o.put("mime", "image/png");
+        o.put("preview_path", small.getAbsolutePath()); o.put("width", width); o.put("height", height);
+        return o;
+    }
+
+    @android.annotation.TargetApi(30)
+    private void dispatchScreenshot(CountDownLatch done, Bitmap[] result, int[] failure) {
+        takeScreenshot(android.view.Display.DEFAULT_DISPLAY, getMainExecutor(), new TakeScreenshotCallback() {
+            @Override public void onSuccess(ScreenshotResult shot) {
+                try { result[0] = Bitmap.wrapHardwareBuffer(shot.getHardwareBuffer(), shot.getColorSpace()).copy(Bitmap.Config.ARGB_8888, false); }
+                finally { shot.getHardwareBuffer().close(); done.countDown(); }
+            }
+            @Override public void onFailure(int code) { failure[0] = code; done.countDown(); }
+        });
     }
 
     private String label(CharSequence pkg) {

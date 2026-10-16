@@ -30,7 +30,8 @@ import java.util.zip.ZipInputStream;
  * WebView shows its interface, as on a computer.
  */
 final class Setup {
-    static final int PORT = 8790;
+    static final int PORT = 8795;
+    static final String UPDATE_COMPAT = "action125-python314-v1";
 
     final Context ctx;
     final File files, home, python, app, bin, log;
@@ -81,7 +82,10 @@ final class Setup {
             version = "?";
         }
         File marker = new File(files, "installed.txt");
-        if (marker.exists() && version.equals(read(marker))) {
+        if (marker.exists() && version.equals(read(marker))
+                && new File(app, "newal_code/server.py").isFile()
+                && new File(python, "lib/python3.14/encodings/__init__.py").isFile()
+                && new File(python, "cacert.pem").isFile()) {
             return;
         }
         delete(python);
@@ -126,7 +130,17 @@ final class Setup {
         Map<String, String> env = pb.environment();
         env.put("HOME", home.getPath());
         env.put("PYTHONHOME", python.getPath());
-        env.put("PYTHONPATH", app.getPath());
+        String enginePath = app.getPath();
+        String packagedBuild = String.valueOf(BuildConfig.VERSION_CODE);
+        File candidate = CandidateSelection.select(home, packagedBuild, UPDATE_COMPAT);
+        if (candidate != null) {
+            enginePath = candidate.getPath() + File.pathSeparator + enginePath;
+            env.put("NEWAL_ACTIVE_REVISION", candidate.getName());
+        }
+        env.put("PYTHONPATH", enginePath);
+        env.put("NEWAL_PACKAGED_BUILD", packagedBuild);
+        env.put("NEWAL_UPDATE_COMPAT", UPDATE_COMPAT);
+        env.put("NEWAL_PACKAGED_ENGINE", app.getPath());
         env.put("PYTHONUNBUFFERED", "1");
         env.put("NEWAL_CODE_HOME", new File(home, ".newal-code").getPath());
         env.put("NEWAL_LLAMA_SERVER", llamaServer());
@@ -137,6 +151,8 @@ final class Setup {
         env.put("NEWAL_PHONE_URL", "http://127.0.0.1:" + PhoneServer.PORT);
         env.put("NEWAL_PHONE_KEY", key());
         env.put("NEWAL_TERMUX_PORT", String.valueOf(Termux.PORT));
+        env.put("NEWAL_PHONE_PORT", String.valueOf(PhoneServer.PORT));
+        env.put("NEWAL_TERMUX_PROFILE", "preview");
         // NewAl-Cloud: Action #43 agent/runtime is unchanged; only the model/API heart is replaced.
         File cfg = new File(home, ".newal-code/config.json");
         if (!cfg.exists()) {

@@ -1,0 +1,34 @@
+/* MusabAI background agents and GitHub (ext_fleet.js) */
+#mf-toasts { position: fixed; inset-inline-end: 12px; top: 56px; z-index: 70; display: flex; flex-direction: column;
+  gap: 8px; width: min(380px, calc(100vw - 24px)); pointer-events: none; }
+.mf-toast { pointer-events: auto; position: relative; background: var(--bg); color: var(--fg); border: 1px solid var(--border);
+  border-radius: 10px; box-shadow: var(--shadow); padding: 10px 34px 10px 12px; font-size: 13px; line-height: 1.45; }
+.mf-toast pre { margin: 6px 0; max-height: 120px; overflow: auto; font-family: var(--mono); font-size: 12px;
+  background: var(--bg-code); padding: 6px; border-radius: 6px; white-space: pre-wrap; word-break: break-word; }
+.mf-toast .mf-go { margin-top: 6px; }
+.mf-go, .mf-btn { border: 1px solid var(--border); background: var(--bg-soft); color: var(--fg); font: inherit; font-size: 12px;
+  padding: 3px 10px; border-radius: 6px; cursor: pointer; text-decoration: none; display: inline-block; }
+.mf-btn.primary, .mf-go { background: var(--accent); color: var(--accent-fg); border-color: transparent; }
+.mf-btn.danger { color: var(--danger, #c62828); }
+.mf-x { position: absolute; top: 4px; inset-inline-end: 6px; border: 0; background: transparent; color: var(--fg-soft);
+  font-size: 18px; cursor: pointer; }
+.mf-acts { display: inline-flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.mf-body { padding: 12px 14px; }
+.mf-new { display: flex; gap: 8px; align-items: flex-end; margin-bottom: 12px; }
+.mf-new textarea, .mf-repo input { flex: 1; min-width: 0; font: inherit; font-size: 13px; color: var(--fg); background: var(--bg-soft);
+  border: 1px solid var(--border); border-radius: 8px; padding: 8px; resize: vertical; }
+.mf-repo { display: flex; gap: 8px; margin-bottom: 8px; }
+.mf-row { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; }
+.mf-head { display: flex; justify-content: space-between; gap: 8px; }
+.mf-state.running { color: var(--accent); }
+.mf-state.done { color: var(--ok, #2e7d32); }
+.mf-meta { color: var(--fg-faint); font-size: 12px; margin-top: 2px; }
+.mf-answer { margin-top: 6px; font-size: 12.5px; color: var(--fg-soft); white-space: pre-wrap; max-height: 7.5em; overflow: hidden; }
+.mf-gh h4 { margin: 12px 0 6px; font-size: 13px; }
+.mf-run { padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+.mf-run .mf-acts { margin: 4px 0 0; display: flex; }
+.mf-st.ok { color: var(--ok, #2e7d32); }
+.mf-st.bad { color: var(--danger, #c62828); }
+.mf-st.run { color: var(--accent); }
+.mf-log { margin: 10px 0 0; max-height: 45vh; overflow: auto; font-family: var(--mono); font-size: 12px; background: var(--bg-code);
+  padding: 8px; border-radius: 8px; white-space: pre-wrap; word-break: break-word; }

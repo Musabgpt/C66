@@ -30,12 +30,15 @@ public class MainActivity extends Activity {
     static final int PICK_MODEL = 7;
     static final int VOICE = 8;
     static final int FILES = 9;
+    static final int SAVE_DOCUMENT = 10;
+    private java.io.File saveTemp;
     private android.webkit.ValueCallback<Uri[]> files;
     private static final String HOME = "http://127.0.0.1:" + Setup.PORT + "/";
     private FrameLayout root;
     private WebView web;
     private WebBridge bridge;
     private String key;
+    private final EngineReadiness readiness = new EngineReadiness();
 
     @Override
     protected void onCreate(Bundle state) {
@@ -79,6 +82,15 @@ public class MainActivity extends Activity {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 Uri u = request.getUrl();
+                if ("newal".equals(u.getScheme()) && "original".equals(u.getHost())) {
+                    new java.io.File(new Setup(MainActivity.this).home, ".newal-code/evolution/active.json").delete();
+                    startAgent(true);
+                    return true;
+                }
+                if ("newal".equals(u.getScheme()) && "retry".equals(u.getHost())) {
+                    startAgent(true);
+                    return true;
+                }
                 if ("127.0.0.1".equals(u.getHost())) {
                     return false;
                 }
@@ -89,12 +101,11 @@ public class MainActivity extends Activity {
                 return true;
             }
         });
-        page("Starting NewAl Code…", "The first start unpacks Python and NewAl Code (a few seconds).", night);
+        page("جارٍ تشغيل NewAl Code…", "يتم تجهيز Python وبدء التطبيق. قد يستغرق التشغيل الأول حتى دقيقتين.", night);
         if (Build.VERSION.SDK_INT >= 33) {
             requestPermissions(new String[] {"android.permission.POST_NOTIFICATIONS"}, 1);
         }
-        startForegroundService(new Intent(this, AgentService.class));
-        waitForServer();
+        startAgent(false);
         Shared.from(this, getIntent(), this::tellShared);
         Shared.shortcut(getIntent(), this::tellShared);
     }
@@ -104,6 +115,10 @@ public class MainActivity extends Activity {
     protected void onNewIntent(Intent i) {
         super.onNewIntent(i);
         setIntent(i);
+        if (i.getData() != null && "musabai".equals(i.getData().getScheme()) && "connectors".equals(i.getData().getHost())) {
+            web.evaluateJavascript("window.openMusabConnectors && window.openMusabConnectors()", null);
+            return;
+        }
         Shared.from(this, i, this::tellShared);
         Shared.shortcut(i, this::tellShared);
     }
@@ -155,54 +170,151 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void waitForServer() {
+    private void startAgent(boolean retry) {
+        final int request = readiness.requestStart(retry);
+        boolean night = (getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK)
+                == Configuration.UI_MODE_NIGHT_YES;
+        if (!readiness.hasPage())
+            page("جارٍ تشغيل NewAl Code…", "يتم تجهيز Python وبدء التطبيق. قد يستغرق التشغيل الأول حتى دقيقتين.", night);
+        Intent service = new Intent(this, AgentService.class);
+        if (retry) service.setAction(AgentService.RETRY);
+        service.putExtra(AgentService.START_RESULT, new android.os.ResultReceiver(
+                new android.os.Handler(android.os.Looper.getMainLooper())) {
+            @Override protected void onReceiveResult(int result, Bundle data) {
+                // The previous process can still answer /health until RETRY finishes stopping it.
+                // Its response must not load a stale page before the service acknowledges this request.
+                String failure = result == 0 ? "" : data == null ? "Engine could not start"
+                        : data.getString("error", "Engine could not start");
+                readiness.serviceStarted(request, failure);
+            }
+        });
+        // Do not show an error left by a previous failed service invocation.
+        AgentService.error = "";
+        try {
+            startForegroundService(service);
+        } catch (RuntimeException e) {
+            AgentService.error = String.valueOf(e);
+            readiness.serviceStarted(request, AgentService.error);
+        }
+        waitForServer(false);
+    }
+
+    /** An explicit restart after candidate activation or rollback may replace the current page. */
+    void restartEngine() { startAgent(true); }
+
+    private void waitForServer(boolean allowRecovery) {
+        final int generation = readiness.beginCheck();
+        if (generation < 0) return;
+        final boolean recover = allowRecovery && readiness.hasPage() && !readiness.servicePending();
         new Thread(() -> {
-            for (int i = 0; i < 480; i++) {
-                if (up(key)) {
-                    runOnUiThread(() -> web.loadUrl(HOME + "?key=" + Uri.encode(key)));
-                    return;
-                }
-                if (!AgentService.error.isEmpty()) {
+            long deadline = android.os.SystemClock.elapsedRealtime() + 120_000;
+            while (readiness.current(generation) && android.os.SystemClock.elapsedRealtime() < deadline) {
+                if (!readiness.startupError().isEmpty()) {
+                    if (recover) {
+                        runOnUiThread(() -> {
+                            if (readiness.current(generation) && !isFinishing() && !isDestroyed())
+                                startAgent(false);
+                        });
+                        return;
+                    }
                     break;
                 }
-                try {
-                    Thread.sleep(250);
-                } catch (InterruptedException e) {
-                    return;
+                if (readiness.canProbe(generation)) {
+                    if (!recover && !AgentService.error.isEmpty()) break;
+                    if (up(key)) {
+                        Setup setup = new Setup(this);
+                        CandidateSelection.markHealthy(setup.home, String.valueOf(BuildConfig.VERSION_CODE),
+                                Setup.UPDATE_COMPAT);
+                        runOnUiThread(() -> {
+                            if (isFinishing() || isDestroyed()) return;
+                            int action = readiness.complete(generation);
+                            if (action != EngineReadiness.LOAD_PAGE) return;
+                            Uri data = getIntent().getData();
+                            boolean connections = data != null && "musabai".equals(data.getScheme())
+                                    && "connectors".equals(data.getHost());
+                            web.loadUrl(HOME + "?key=" + Uri.encode(key) + (connections ? "&connections=1" : ""));
+                        });
+                        return;
+                    }
+                    if (recover) {
+                        runOnUiThread(() -> {
+                            if (readiness.current(generation) && !isFinishing() && !isDestroyed())
+                                startAgent(false); // ensureRunning only starts a missing process; the draft stays.
+                        });
+                        return;
+                    }
+                    if (!AgentService.error.isEmpty()) break;
                 }
+                try { Thread.sleep(250); }
+                catch (InterruptedException e) { return; }
             }
-            String why = AgentService.error + "\n" + new Setup(this).logTail();
+            if (!readiness.current(generation)) return;
+            String failure = readiness.startupError().isEmpty() ? AgentService.error : readiness.startupError();
+            Setup setup = new Setup(this);
+            if (CandidateSelection.rollbackPending(setup.home, String.valueOf(BuildConfig.VERSION_CODE),
+                    Setup.UPDATE_COMPAT, failure.isEmpty() ? "Startup health timeout" : failure)) {
+                runOnUiThread(() -> {
+                    if (!isFinishing() && !isDestroyed()) startAgent(true);
+                });
+                return;
+            }
+            String why = failure.isEmpty()
+                    ? "لم يستجب التطبيق خلال دقيقتين. اضغط إعادة المحاولة لتشغيله مجددًا."
+                    : failure;
+            String log = new Setup(this).logTail();
+            if (!log.isEmpty()) why += "\n\n" + log;
+            final String detail = why;
             boolean night = (getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK)
                     == Configuration.UI_MODE_NIGHT_YES;
-            runOnUiThread(() -> page("NewAl Code did not start", why, night));
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed() || !readiness.failed(generation)) return;
+                if (readiness.hasPage()) {
+                    android.widget.Toast.makeText(this, "تعذّر الاتصال بالمحرّك. ستتم إعادة المحاولة عند الرجوع للتطبيق.",
+                            android.widget.Toast.LENGTH_LONG).show();
+                } else {
+                    page("تعذّر تشغيل NewAl Code", detail, night, true);
+                }
+            });
         }, "newal-wait").start();
     }
 
     private static boolean up(String key) {
+        HttpURLConnection c = null;
         try {
-            HttpURLConnection c = (HttpURLConnection) new URL(HOME + "api/state").openConnection();
+            c = (HttpURLConnection) new URL(HOME + "api/health").openConnection();
             c.setRequestProperty("X-NewAl-Key", key);
-            c.setConnectTimeout(800);
-            c.setReadTimeout(3000);
-            int code = c.getResponseCode();
-            c.disconnect();
-            return code == 200;
-        } catch (Exception e) {
-            return false;
-        }
+            c.setInstanceFollowRedirects(false);
+            c.setConnectTimeout(500);
+            c.setReadTimeout(500);
+            return c.getResponseCode() == 200;
+        } catch (Exception e) { return false; }
+        finally { if (c != null) c.disconnect(); }
+    }
+
+    @Override
+    protected void onDestroy() {
+        readiness.pause();
+        super.onDestroy();
     }
 
     private void page(String title, String text, boolean night) {
+        page(title, text, night, false);
+    }
+
+    private void page(String title, String text, boolean night, boolean retry) {
         String html = "<html><head><meta name='viewport' content='width=device-width,initial-scale=1'></head>"
                 + "<body style='font-family:sans-serif;padding:24px;margin:0;background:" + (night ? "#1e1e20" : "#fff")
                 + ";color:" + (night ? "#ececf0" : "#222") + "'><h2>" + Html.escapeHtml(title)
                 + "</h2><pre style='white-space:pre-wrap;color:" + (night ? "#a9a9b2" : "#555") + "'>"
-                + Html.escapeHtml(text) + "</pre></body></html>";
+                + Html.escapeHtml(text) + "</pre>"
+                + (retry ? "<a href='newal://retry' style='display:inline-block;padding:14px 24px;background:#90d8b0;color:#10141d;border-radius:12px;text-decoration:none'>إعادة المحاولة</a><p><a href='newal://original'>الرجوع للمحرّك الأصلي</a></p>" : "")
+                + "</body></html>";
         web.loadDataWithBaseURL(null, html, "text/html", "utf-8", null);
     }
 
     @Override
     protected void onPause() {
+        readiness.pause();
         super.onPause();
         Access.paused();
     }
@@ -211,6 +323,8 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         Access.resumed(this);
+        readiness.resume();
+        waitForServer(true);
     }
 
     @Override
@@ -225,10 +339,61 @@ public class MainActivity extends Activity {
         runOnUiThread(() -> web.evaluateJavascript(js, null));
     }
 
+    void saveDocument(String url, String name, String mime) {
+        Uri uri = Uri.parse(url);
+        if (!"http".equals(uri.getScheme()) || !"127.0.0.1".equals(uri.getHost()) || uri.getPort() != Setup.PORT
+                || !"/api/documents/download".equals(uri.getPath())) return;
+        if (saveTemp != null) return;
+        java.io.File temp;
+        try { temp = java.io.File.createTempFile("document-", ".tmp", getCacheDir()); saveTemp = temp; }
+        catch (Exception e) { return; }
+        new Thread(() -> {
+            HttpURLConnection conn = null;
+            try {
+                conn = (HttpURLConnection) new URL(url).openConnection();
+                conn.setInstanceFollowRedirects(false); conn.setConnectTimeout(15000); conn.setReadTimeout(30000);
+                conn.setRequestProperty("X-NewAl-Key", key);
+                if (conn.getResponseCode() != 200) throw new java.io.IOException("Download failed");
+                try (java.io.InputStream in = conn.getInputStream(); java.io.OutputStream out = new java.io.FileOutputStream(temp)) {
+                    byte[] buf = new byte[8192]; int total = 0;
+                    for (int n; (n = in.read(buf)) != -1;) {
+                        total += n; if (total > 32 * 1024 * 1024) throw new java.io.IOException("File exceeds 32 MB");
+                        out.write(buf, 0, n);
+                    }
+                }
+                runOnUiThread(() -> {
+                    if (isDestroyed()) { temp.delete(); saveTemp = null; return; }
+                    Intent pick = new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
+                            .setType(mime).putExtra(Intent.EXTRA_TITLE, name.replaceAll("[/\\\\]", "_"));
+                    try { startActivityForResult(pick, SAVE_DOCUMENT); }
+                    catch (Exception e) { temp.delete(); saveTemp = null; }
+                });
+            } catch (Exception e) {
+                temp.delete(); saveTemp = null;
+                runOnUiThread(() -> android.widget.Toast.makeText(this, "تعذّر حفظ الملف: " + e.getMessage(), android.widget.Toast.LENGTH_LONG).show());
+            } finally { if (conn != null) conn.disconnect(); }
+        }, "document-save").start();
+    }
+
     /** A GGUF file the user picked (the Models page's "Copy a GGUF into the app"): copied into the models folder. */
     @Override
     protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
+        if (request == SAVE_DOCUMENT && saveTemp != null) {
+            java.io.File source = saveTemp;
+            if (result != RESULT_OK || data == null || data.getData() == null) { source.delete(); saveTemp = null; return; }
+            Uri destination = data.getData();
+            new Thread(() -> {
+                try (java.io.InputStream in = new java.io.FileInputStream(source);
+                     java.io.OutputStream out = getContentResolver().openOutputStream(destination)) {
+                    if (out == null) throw new java.io.IOException("Cannot open destination");
+                    byte[] buf = new byte[8192]; for (int n; (n = in.read(buf)) != -1;) out.write(buf, 0, n);
+                    runOnUiThread(() -> android.widget.Toast.makeText(this, "تم حفظ الملف", android.widget.Toast.LENGTH_LONG).show());
+                } catch (Exception e) {runOnUiThread(() -> android.widget.Toast.makeText(this, "تعذّر حفظ الملف", android.widget.Toast.LENGTH_LONG).show());}
+                finally { source.delete(); saveTemp = null; }
+            }, "document-copy").start();
+            return;
+        }
         if (request == PICK_MODEL && result == RESULT_OK && data != null && data.getData() != null) {
             ModelImport.start(this, web, data.getData());
         }

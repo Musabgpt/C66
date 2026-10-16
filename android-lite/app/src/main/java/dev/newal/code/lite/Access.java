@@ -105,6 +105,14 @@ final class Access {
             ask(a, Termux.PERMISSION);
             return;
         }
+        // Long tasks keep running in the background: no battery optimisation for this app (Android asks once).
+        android.os.PowerManager pm = a.getSystemService(android.os.PowerManager.class);
+        if (pm != null && !pm.isIgnoringBatteryOptimizations(a.getPackageName()) && asked.add("battery")) {
+            if (open(a, new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                    Uri.parse("package:" + a.getPackageName())), "Battery: allow, so long tasks are not stopped")) {
+                return;
+            }
+        }
         running = false;
         a.accessDone();
     }
