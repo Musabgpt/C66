@@ -44,6 +44,19 @@
   const later = () => { if (!queued) { queued = true; requestAnimationFrame(() => { queued = false; tidy(); }); } };
   document.addEventListener('DOMContentLoaded', () => {
     tidy();
-    new MutationObserver(later).observe(document.body, {childList: true, subtree: true});
+    const relevant = '#connector-dialog, #connector-list, #extension-list, #open-connectors';
+    new MutationObserver(records => {
+      for (const record of records) {
+        const target = record.target;
+        // Streaming text and tool output never change the connections panel.
+        if (target.nodeType === 1 && target.closest('#messages')) continue;
+        if (target.nodeType === 1 && target.closest(relevant)) { later(); return; }
+        for (const node of record.addedNodes) {
+          if (node.nodeType === 1 && !node.matches('#messages') &&
+              (node.matches(relevant) || node.querySelector(relevant))) { later(); return; }
+        }
+      }
+    }).observe(document.body, {childList: true, subtree: true});
+    new MutationObserver(later).observe(document.documentElement, {attributes: true, attributeFilter: ['lang']});
   });
 })();

@@ -7,6 +7,19 @@ from . import provider_pool, provider_keys, providers
 
 
 class ProviderPoolTests(unittest.TestCase):
+    def test_ineligible_fallbacks_do_not_read_phone_credentials(self):
+        client = SimpleNamespace(spec={'id': 'current'})
+        rows = [dict(provider_pool.FREE_POOL[0], capabilities=['text']),
+                dict(provider_pool.FREE_POOL[1])]
+        provider_pool.HEALTH.failure(rows[1], providers.ProviderError('busy', 429))
+        with patch.object(provider_pool, 'FREE_POOL', rows), \
+             patch.object(provider_pool.settings, 'user', return_value={}), \
+             patch.object(provider_pool.free_provider_adapters, 'extra_free_specs', return_value=[]), \
+             patch.object(provider_keys, 'secret', return_value='') as read_secret, \
+             patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(provider_pool.candidates(client, {'vision'}), [])
+            read_secret.assert_not_called()
+
     def test_request_boundary_recovers_after_reasoning_and_partial_tool_arguments(self):
         messages = [{'role': 'tool', 'tool_call_id': 'done', 'content': 'already written'}]
         events, resets, calls = [], [], []

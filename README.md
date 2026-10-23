@@ -1,4 +1,6 @@
-# MusabAI
+# C66 — MusabAI
+
+Performance development copy of `Musabgpt/NewAl-Cloud`. See [C66 performance notes](C66_PERFORMANCE.md) for changes and verification scope.
 
 Android coding assistant with persistent project memory, document tools, official OAuth/MCP connections, Termux execution and tested engine candidates.
 

@@ -1,7 +1,7 @@
 name: MusabAI — Android
 on:
   push:
-    branches: ["connectors-from-125", "feat/free-providers-mcp-router", "feat/mcp-registry-core-phase1", "feat/activepieces-mcp-oauth", "feat/browser-layer-phase2", "feat/search-crawl-phase3", "feat/document-engine-phase4", "feat/memory-rag-orchestration-phase5", "feat/execution-phase6", "feat/observability-phase7", "feat/task-checkpoints-phase8", "phase1/baseline-audit", "phase2/capability-aware-provider-router", "phase3/free-provider-health-failover", "phase4/task-supervisor-watchdog", "phase5/unified-runtime-manager", "phase6/termux-localhost-bridge", "phase7/mcp-manager-lifecycle", "phase8/musab-hub-live-state", "phase9/self-update-hot-reload", "phase10/final-validation", "fix/context-continuity-claude-workflow", "feat/claude-harness-core"]
+    branches: ["main", "c66-performance", "connectors-from-125", "feat/free-providers-mcp-router", "feat/mcp-registry-core-phase1", "feat/activepieces-mcp-oauth", "feat/browser-layer-phase2", "feat/search-crawl-phase3", "feat/document-engine-phase4", "feat/memory-rag-orchestration-phase5", "feat/execution-phase6", "feat/observability-phase7", "feat/task-checkpoints-phase8", "phase1/baseline-audit", "phase2/capability-aware-provider-router", "phase3/free-provider-health-failover", "phase4/task-supervisor-watchdog", "phase5/unified-runtime-manager", "phase6/termux-localhost-bridge", "phase7/mcp-manager-lifecycle", "phase8/musab-hub-live-state", "phase9/self-update-hot-reload", "phase10/final-validation", "fix/context-continuity-claude-workflow", "feat/claude-harness-core"]
   pull_request:
     branches: ["main"]
   workflow_dispatch:

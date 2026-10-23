@@ -551,12 +551,14 @@ def candidates(current, required_capabilities=None, include_cooling=False):
         base = _base(spec)
         if not mid or mid in seen_ids or not base or (base in seen_bases and base != KILO_BASE):
             continue
-        key = _key(spec)
-        if (spec.get("api_key_env") or spec.get("api_key_envs")) and not key:
-            continue
         if not _explicitly_free(spec) or (not include_cooling and not _available(spec)):
             continue
         if required_capabilities is not None and not _supports(spec, required_capabilities):
+            continue
+        # The Android vault is a bridge round trip. Reject unusable routes
+        # before reading credentials, especially during provider cooldowns.
+        key = _key(spec)
+        if (spec.get("api_key_env") or spec.get("api_key_envs")) and not key:
             continue
         spec["api_key"] = key
         seen_ids.add(mid)
