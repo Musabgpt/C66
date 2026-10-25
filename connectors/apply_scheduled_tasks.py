@@ -14,8 +14,8 @@ def apply(src, package, replace):
     replace(tools, "from . import task_state as _task_state\n",
             "from . import task_state as _task_state\n"
             "from . import scheduled_tasks as _scheduled_tasks\n")
-    replace(tools, " + _tool_search.NAMES\n",
-            " + _tool_search.NAMES + _scheduled_tasks.NAMES\n")
+    replace(tools, " + _tool_search.NAMES",
+            " + _tool_search.NAMES + _scheduled_tasks.NAMES")
 
     # Lean phone mode must offer the same tools to the model as the full mode.
     replace(package / "lean.py", '    "read", "edit", "write", "glob", "grep", "bash", "job", "todo",\n',
