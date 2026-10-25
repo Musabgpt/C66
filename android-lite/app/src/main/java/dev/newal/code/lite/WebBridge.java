@@ -81,12 +81,40 @@ final class WebBridge {
             o.put("termux", t);
             o.put("phone", "http://127.0.0.1:" + PhoneServer.PORT);
             o.put("sdk", Build.VERSION.SDK_INT);
+            o.put("floating_overlay", Build.VERSION.SDK_INT < 23 || Settings.canDrawOverlays(act));
+            o.put("microphone", act.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)
+                    == PackageManager.PERMISSION_GRANTED);
             o.put("files", Access.files(act));
             o.put("notifications", Build.VERSION.SDK_INT < 33 || act.checkSelfPermission(
                     "android.permission.POST_NOTIFICATIONS") == PackageManager.PERMISSION_GRANTED);
         } catch (Exception ignored) {
         }
         return o.toString();
+    }
+
+    /** Restart the native setup wizard from the app's connections screen. */
+    @JavascriptInterface
+    public void setupAll() {
+        act.runOnUiThread(() -> FirstRunSetup.start((MainActivity) act));
+    }
+
+    /** Store a NVIDIA credential only via the encrypted Android Keystore. */
+    @JavascriptInterface
+    public void configureNvidia() {
+        act.runOnUiThread(() -> FirstRunSetup.askNvidia((MainActivity) act, false));
+    }
+
+    /** User-controlled floating overlay, no background permission escalation. */
+    @JavascriptInterface
+    public void floatingAssistant(boolean enabled, boolean handsFree) {
+        act.runOnUiThread(() -> {
+            if (enabled) FirstRunSetup.startOverlay((MainActivity) act, handsFree);
+            else {
+                Intent intent = new Intent(act, FloatingAssistantService.class);
+                intent.setAction(FloatingAssistantService.ACTION_STOP);
+                act.startService(intent);
+            }
+        });
     }
 
     @JavascriptInterface
