@@ -5,6 +5,7 @@ runs with MusabAI's foreground Python service; Android can delay or stop it, so
 this is best-effort scheduling (never promise exact delivery during force-stop).
 """
 import datetime as dt
+from contextlib import contextmanager
 import json
 import math
 import os
@@ -30,6 +31,7 @@ def db_path():
     return Path(settings.HOME) / "scheduled-tasks.sqlite3"
 
 
+@contextmanager
 def _connect():
     path = db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -43,7 +45,11 @@ def _connect():
         last_run REAL, last_result TEXT NOT NULL DEFAULT '', attempts INTEGER NOT NULL DEFAULT 0,
         session_id TEXT NOT NULL DEFAULT '', root TEXT NOT NULL DEFAULT ''
     )""")
-    return db
+    try:
+        with db:
+            yield db
+    finally:
+        db.close()
 
 
 def _dict(row):
@@ -227,7 +233,7 @@ def run_one(service, now=None):
             text, sid = _run_agent(service, row)
             if row["kind"] != "watch" or text.strip() != "NO_CHANGE":
                 _notify(row["title"], text or "(No response from the configured model)")
-        _complete(row, text, sid)
+        _complete(row, text, sid, at=now)
     except Exception as exc:  # Keep the task for bounded retry; never call it a success.
         _failure(row, exc)
     return True
