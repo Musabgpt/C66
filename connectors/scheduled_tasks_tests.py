@@ -99,6 +99,15 @@ class ScheduledTaskTests(unittest.TestCase):
         notify.assert_not_called()
         self.assertEqual(st.listing()[0]["status"], "active")
 
+    def test_recover_running_after_service_restart(self):
+        row = st.create("Interrupted", "Check", delay_minutes=2)
+        with st._connect() as db:
+            db.execute("UPDATE scheduled_tasks SET status='running' WHERE id=?", (row["id"],))
+        st.recover_incomplete()
+        rec = st.listing()[0]
+        self.assertEqual(rec["status"], "active")
+        self.assertLess(rec["next_run"], time.time() + 20)
+
     def test_failed_notification_never_marks_reminder_done(self):
         row = st.create("Retry", "remind", delay_minutes=1)
         with mock.patch.object(st, "_notify", side_effect=OSError("notification denied")):
