@@ -1,4 +1,5 @@
 """Stable, packaged behavior profile adapted from the user's uploaded prompt."""
+import os
 from pathlib import Path
 
 MARKER = 'MusabAI behavior profile v10'
@@ -31,7 +32,8 @@ ORCHESTRATION_GUIDANCE = ("For multi-step tasks spanning several tool families, 
                           "changes permissions, or invents unavailable backends.")
 EXECUTION_GUIDANCE = ("For command execution use execution_plan when the correct host is unclear. sandbox_exec runs only "
                       "explicit scratch inputs in a temporary directory and is not a container or OS security boundary. "
-                      "Prefer connected Termux for Android/Linux commands on the device; Appium or E2B are optional only when exposed.")
+                      "On Android use the built-in BusyBox commands when available for light file/shell work; "
+                      "prefer connected Termux for node, npm, compilers and heavier builds. Appium/E2B only if exposed.")
 GIT_GUIDANCE = ("For local repository inspection use git_status, git_diff and git_log. git_commit stages only explicit relative "
                 "paths and creates a local commit; it never pushes, force-updates history, changes remotes or stores credentials.")
 OBSERVABILITY_GUIDANCE = ("Operational tracing is local and metadata-only by default. Use observability_status or "
@@ -92,6 +94,8 @@ def system_text(env, phone=False, local=False, steps=25):
     text += "\n\nEnvironment: {os}; shell: {shell}.".format(**env)
     if phone:
         text += "\n\n" + (SMALL_PHONE_NOTE if local else PHONE_NOTE)
+        if os.environ.get("NEWAL_BUSYBOX_AUTO") == "1":
+            text += "\nLocal BusyBox commands work with bash automatically; don't ask for the busybox prefix."
     return text
 
 
@@ -111,11 +115,14 @@ def runtime_context(agent):
             label = connectors.CATALOG.get(operation[0], operation[0])
             providers[label] = providers.get(label, 0) + 1
     import json
+    busybox = os.environ.get("NEWAL_BUSYBOX") or ""
+    busybox_ready = bool(busybox and os.path.isfile(busybox))
     # Short and stable: it sits at the end of the system message, so it changes only when a connection or the
     # permission mode does (the provider's prompt cache keeps everything before it).
     state = {'permission_mode': agent.session.mode,
              'project_directory': agent.session.root,
              'internal_terminal': 'bash' in names,
+             'busybox_auto': busybox_ready and os.environ.get("NEWAL_BUSYBOX_AUTO") == "1",
              'termux': 'termux_exec' in names,
              'connected_service_tools': providers,
              'custom_mcp_tools': sum(name.startswith('mcp__') for name in names),
