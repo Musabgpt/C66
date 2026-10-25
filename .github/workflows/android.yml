@@ -188,6 +188,16 @@ jobs:
         run: |
           python3 connectors/package_baseline.py baseline-action125/NewAl-Cloud-Action43.apk
           python3 connectors/verify_package.py android-lite/app/build/generated/newal-assets/newal_code.zip
+      - name: Compile pinned BusyBox for Android (native libraries)
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDKMANAGER="$(command -v sdkmanager || find "$ANDROID_HOME" -type f -name sdkmanager | sort | tail -n 1)"
+          test -n "$SDKMANAGER"
+          "$SDKMANAGER" "ndk;27.2.12479018"
+          export ANDROID_NDK="$ANDROID_HOME/ndk/27.2.12479018"
+          bash android-lite/native/build_busybox.sh
+          python3 -m unittest connectors.test_busybox_integration -v
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.7"
@@ -320,6 +330,9 @@ jobs:
             signing-report.txt
             MusabAI-Hot-Update.zip
             MusabAI-Hot-Update.zip.sha256
+            android-lite/build/busybox-source/busybox-1.38.0.tar.bz2
+            android-lite/native/build_busybox.sh
+            android-lite/BUSYBOX.md
           compression-level: 0
           retention-days: 14
       - name: Upload development-only artifact
@@ -333,6 +346,9 @@ jobs:
             signing-report-development.txt
             MusabAI-Hot-Update.zip
             MusabAI-Hot-Update.zip.sha256
+            android-lite/build/busybox-source/busybox-1.38.0.tar.bz2
+            android-lite/native/build_busybox.sh
+            android-lite/BUSYBOX.md
           compression-level: 0
           retention-days: 14
 
