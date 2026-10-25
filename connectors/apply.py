@@ -522,6 +522,8 @@ if __name__ == "__main__":
     # not as a replacement for any default or the free-provider fallback pool.
     shutil.copyfile(target / "connectors/nvidia_models.py",
                     target / "desktop/newal_code/nvidia_models.py")
+    shutil.copyfile(target / "connectors/nvidia_models_tests.py",
+                    target / "desktop/newal_code/nvidia_models_tests.py")
     model_file = target / "desktop/newal_code/models.py"
     replace(model_file,
             '    "groq": ("https://api.groq.com/openai/v1", "GROQ_API_KEY"),\n',
