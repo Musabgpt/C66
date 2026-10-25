@@ -57,7 +57,7 @@ PY
       echo "BusyBox $abi missing $applet" >&2; exit 1;
     }
   done
-  make -s -C "$SOURCE" O="$OUT" ARCH="$arch" -j2 HOSTCC=cc CC="$clang" \
+  make -s -C "$SOURCE" O="$OUT" ARCH="$arch" -j2 HOSTCC=cc CC="$clang" STRIP="$TOOLS/llvm-strip" \
     EXTRA_CFLAGS="-fPIE -DANDROID -D__ANDROID__" \
     EXTRA_LDFLAGS="-pie -Wl,-z,max-page-size=16384"
   FILE="$OUT/busybox"
