@@ -267,7 +267,13 @@ public final class FloatingAssistantService extends Service implements Recogniti
         if (!listening || destroyed || speaking) return;
         try {
             if (speech != null) { speech.destroy(); speech = null; }
-            speech = SpeechRecognizer.createSpeechRecognizer(this);
+            // Prefer local recognition where Android actually offers it, to
+            // reduce network use and latency. Fall back to system recognition
+            // after two provider errors (e.g. Arabic not downloaded locally).
+            if (Build.VERSION.SDK_INT >= 31 && speechFailures < 2 &&
+                    SpeechRecognizer.isOnDeviceRecognitionAvailable(this))
+                speech = SpeechRecognizer.createOnDeviceSpeechRecognizer(this);
+            else speech = SpeechRecognizer.createSpeechRecognizer(this);
             speech.setRecognitionListener(this);
             Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
             intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
