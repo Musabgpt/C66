@@ -181,9 +181,9 @@ class LoopTests(unittest.TestCase):
     def test_fast_phone_sequence_reports_unverified_not_sent(self):
         from . import phone, phone_fast
         with mock.patch.object(phone, "call", lambda *a, **kw: {"ok": True,
-                "screen": "App: Chrome (com.android.chrome)\\n[1] Submit · tap"}), \\
+                "screen": "App: Chrome (com.android.chrome)\\n[1] Submit · tap"}), \
              mock.patch.object(phone_fast, "read_screen",
-                               lambda: "App: Chrome (com.android.chrome)\\n[1] Submit · tap"), \\
+                               lambda: "App: Chrome (com.android.chrome)\\n[1] Submit · tap"), \
              mock.patch.object(phone_fast.time, "sleep", lambda s: None):
             result, meta = tools.REGISTRY["phone_sequence"].fn(
                 self.ctx(), steps=[{"action": "tap", "text": "Submit"}],
