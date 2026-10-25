@@ -239,11 +239,23 @@ def run_one(service, now=None):
     return True
 
 
+def recover_incomplete():
+    """A service crash can leave a task marked running; reschedule it exactly once.
+
+    Execution and notification delivery are best-effort, not exactly-once when
+    Android kills the process between posting an alert and recording success.
+    """
+    with _connect() as db:
+        db.execute("UPDATE scheduled_tasks SET status='active', next_run=? "
+                   "WHERE status='running'", (time.time() + 10,))
+
+
 def start(service):
     """Start only in the packaged app (or explicit tests), never all test Services."""
     if not (os.environ.get("NEWAL_PACKAGED_ENGINE") or
             os.environ.get("MUSABAI_SCHEDULED_TASKS") == "1"):
         return None
+    recover_incomplete()
     stop = threading.Event()
 
     def worker():
