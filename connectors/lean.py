@@ -18,7 +18,7 @@ LEAN = (
     "github", "github_monitor",
     "code_check",
     "web_search", "web_fetch",
-    "phone", "screen_look", "phone_routine", "phone_sequence",
+    "phone", "screen_look", "phone_routine", "phone_sequence", "toolchain_status",
 )
 CONNECTOR_PREFIXES = ("github_", "termux_")
 SERVICES = ("github", "termux")            # the connections the app shows
