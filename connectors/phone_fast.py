@@ -21,7 +21,7 @@ import time
 
 from . import settings, tools
 
-NAMES = ["phone_routine"]
+NAMES = ["phone_routine", "phone_sequence"]
 OBSERVE = ("open_app", "open_url", "tap", "type", "swipe", "scroll", "key", "intent", "settings")
 SKIP = ("screen", "screenshot", "wait", "apps", "battery", "device", "notifications_read", "crash_reports",
         "automation_list", "clipboard", "notify")
@@ -459,4 +459,61 @@ def install():
             "Nothing typed to check on the screen: check the result yourself before you say it is done."
         return ("Routine %s done (%d steps): %s\n%s\n\nScreen now:\n%s" % (
             id, len(done), "; ".join(done), check, tools.clip(screen, 7000))), {"routine": id, "done": True}
+    @tools.tool("phone_sequence",
+                "Do several verified UI steps in one fast phone call. Useful for completing a website in "
+                "the installed Chrome browser: open_url, tap a visible label or item, type into a field, "
+                "scroll and tap an explicitly requested send button. Provide ordered steps from a recent "
+                "screen; optionally give expected_text from the final confirmation. No automatic replay.",
+                {"steps": {"type": "array", "items": {"type": "object"},
+                           "description": "1-20 objects: action=open_url/tap/type/scroll/swipe/key; "
+                                          "url, text, item, direction, name, expect_before as needed"},
+                 "expected_text": tools._s("optional text visible on the confirmation page")},
+                ["steps"], "phone")
+    def t_phone_sequence(ctx, steps, expected_text=""):
+        if not isinstance(steps, list) or not 1 <= len(steps) <= 20:
+            raise tools.ToolError("Provide 1-20 phone steps")
+        phone = _phone()
+        screen = ""
+        done = []
+        for i, item in enumerate(steps):
+            if getattr(ctx, "cancel", None) is not None and ctx.cancel.is_set():
+                raise tools.ToolError("cancelled")
+            if not isinstance(item, dict):
+                raise tools.ToolError("Step %d must be an object" % (i + 1))
+            op = str(item.get("action") or "")
+            if op not in ("open_url", "tap", "type", "scroll", "swipe", "key"):
+                raise tools.ToolError("Unsupported step %d action %s" % (i + 1, op))
+            pre = str(item.get("expect_before") or "")
+            if pre:
+                screen = screen or read_screen()
+                if not shows(screen, pre):
+                    return ("Stopped before step %d: required screen text not found.\nScreen now:\n%s"
+                            % (i + 1, tools.clip(screen, 6000))), {"done": False, "steps": i}
+            args = {k: v for k, v in item.items()
+                    if k in ("url", "text", "item", "direction", "name") and v not in (None, "")}
+            if op == "open_url":
+                url = str(args.get("url") or "")
+                if not url.lower().startswith(("https://", "http://")):
+                    raise tools.ToolError("Website must be an HTTP(S) URL")
+                args["package"] = "com.android.chrome"
+            if op == "type":
+                args["private"] = True   # never record typed web-form values in saved phone routines
+            try:
+                res = phone.call(op, **args)
+                screen = str(res.get("screen") or "")
+            except phone.PhoneError as exc:
+                screen = observe("tap", {})
+                return ("Stopped at step %d of %d: %s\nScreen now:\n%s" %
+                        (i + 1, len(steps), exc, tools.clip(screen, 6000))),                        {"done": False, "steps": i}
+            done.append(op)
+        screen = _settle(screen or read_screen(), expected_text)
+        confirmed = bool(expected_text and shows(screen, expected_text))
+        if expected_text and not confirmed:
+            return ("Actions ran but the expected confirmation was not found; do not claim submission "
+                    "succeeded.\nScreen now:\n%s" % tools.clip(screen, 6000)),                    {"done": False, "steps": len(done), "verified": False}
+        return ("Ran %d phone steps (%s). %s\nScreen now:\n%s" %
+                (len(done), ", ".join(done),
+                 "Confirmation visible." if confirmed else "Check page for completion confirmation.",
+                 tools.clip(screen, 6000))),                {"done": True, "steps": len(done), "verified": confirmed}
+
     wrap_phone()
