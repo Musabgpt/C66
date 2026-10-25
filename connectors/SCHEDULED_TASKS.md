@@ -5,8 +5,9 @@ The **المهام المجدولة** page creates, lists, pauses, resumes, runs
 ## Types
 
 - Reminder: post a native phone notification; no AI model required.
-- Agent: at due time, run a new READ-ONLY model agent check and notify its result. The model and any needed connection must be available.
-- Watch: recurring read-only model check; no notification on exactly NO_CHANGE. AI checks may give false alerts, so verify important claims yourself.
+- Agent: at due time, run a new FULL-AUTO agent by default, carry out the user's requested phone/app/GitHub/code task, verify results and notify. The model and any needed connections/Android permissions must be available.
+- Watch: recurring agent check; if condition false, return NO_CHANGE without taking action. If true, perform the user's requested actions, notify and mark the watch complete (prevents repeated side-effects). The agent's judgement may be wrong, so review important outcomes.
+- Individual agent/watch tasks can opt into read-only explicitly using permission_mode=read-only; the default is full-auto.
 
 ## Timings and background limitations
 
@@ -15,7 +16,9 @@ The **المهام المجدولة** page creates, lists, pauses, resumes, runs
 - The scheduler wakes approximately every ten seconds while MusabAI's existing Android foreground Python service is alive. Android may delay, kill, force-stop or restrict background execution; this is NOT a guaranteed exact-time alarm. The first version does not use AlarmManager or cloud infrastructure.
 - If the service stops, task state stays in the app-private SQLite file. Bring the app back to resume. Do not rely on this for critical medical or safety reminders.
 - Overdue repeat periods are skipped (no catch-up burst). Notifications use the existing authenticated native Android phone API and require notification permission.
-- AI tasks are run serially with read-only permissions: they cannot edit, send, install, or delete unattended. They use the configured model, not a guaranteed cloud agent.
+- AI tasks run serially in full-auto by default. This enables already-granted phone, shell, GitHub and file tools to actually execute authorized operations. Android runtime permissions and safeguards still apply; full-auto cannot bypass Accessibility, app installation approvals or system restrictions. Irreversible actions outside the user's instructions still need explicit approval. They use the configured model, not a guaranteed cloud agent.
+- Older saved agent/watch tasks made by the previous read-only release are migrated to full-auto automatically in this update, as explicitly requested by the user. You can pause them or choose read-only for new tasks.
+- The UI task creation form defaults to full-auto for agent jobs and offers read-only as an optional setting.
 
 ## Examples to say in MusabAI
 
