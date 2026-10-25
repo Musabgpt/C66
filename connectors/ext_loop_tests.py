@@ -139,8 +139,70 @@ class LoopTests(unittest.TestCase):
             fail_chrome[0] = True
             tools.REGISTRY["phone"].fn(ctx, action="open_url", url="http://localhost:8080/")
         self.assertEqual(calls[0], ("open_url", {"url": "http://127.0.0.1:3000", "package": termux_loop.CHROME}))
-        self.assertEqual(calls[1], ("open_url", {"url": "https://www.youtube.com/results?search_query=x"}))
+        self.assertEqual(calls[1], ("open_url", {"url": "https://www.youtube.com/results?search_query=x",
+                                                  "package": termux_loop.CHROME}))
         self.assertEqual(calls[-1], ("open_url", {"url": "http://localhost:8080/"}))      # no Chrome: the default
+
+    def test_private_project_still_routes_development_to_connected_termux(self):
+        from . import termux_loop
+        self.on_phone()
+        private = self.ctx("/data/user/0/dev.newal/files/project")
+        self.assertFalse(termux_loop.routes(private))
+        for command in ("pkg install git", "npm test", "python3 --version", "gh repo list",
+                        "curl -I https://example.com"):
+            with self.subTest(command=command):
+                self.assertTrue(termux_loop.routes(private, command))
+        self.assertFalse(termux_loop.routes(private, "ls -la"))
+        self.assertEqual(termux_loop.in_project(private, "npm test"), "npm test")
+
+    def test_fast_chrome_ui_sequence_requires_visible_confirmation(self):
+        from . import phone, phone_fast
+        self.assertIn("phone_sequence", tools.REGISTRY)
+        calls = []
+
+        def fake(action, timeout=90, **kwargs):
+            calls.append((action, kwargs))
+            return {"ok": True, "screen": "App: Chrome (com.android.chrome)\\n"
+                    "[1] Sent successfully · tap" if action == "tap" else
+                    "App: Chrome (com.android.chrome)\\n[1] Email · field"}
+        steps = [{"action": "open_url", "url": "https://example.com/form"},
+                 {"action": "tap", "text": "Email"},
+                 {"action": "type", "text": "someone@example.com"},
+                 {"action": "tap", "text": "Send"}]
+        with mock.patch.object(phone, "call", fake), mock.patch.object(phone_fast, "read_screen",
+                                                                        lambda: "App: Chrome\\nSent successfully"):
+            result, meta = tools.REGISTRY["phone_sequence"].fn(
+                self.ctx(), steps=steps, expected_text="Sent successfully")
+        self.assertTrue(meta["verified"])
+        self.assertEqual(calls[0][1]["package"], "com.android.chrome")
+        self.assertTrue(calls[2][1]["private"])
+        self.assertNotIn("someone@example.com", result)
+
+    def test_fast_phone_sequence_reports_unverified_not_sent(self):
+        from . import phone, phone_fast
+        with mock.patch.object(phone, "call", lambda *a, **kw: {"ok": True,
+                "screen": "App: Chrome (com.android.chrome)\\n[1] Submit · tap"}), \
+             mock.patch.object(phone_fast, "read_screen",
+                               lambda: "App: Chrome (com.android.chrome)\\n[1] Submit · tap"), \
+             mock.patch.object(phone_fast.time, "sleep", lambda s: None):
+            result, meta = tools.REGISTRY["phone_sequence"].fn(
+                self.ctx(), steps=[{"action": "tap", "text": "Submit"}],
+                expected_text="Your request was received")
+        self.assertFalse(meta["done"])
+        self.assertFalse(meta["verified"])
+        self.assertIn("not found", result)
+
+    def test_toolchain_reports_real_busybox_toybox_and_connected_termux(self):
+        from . import toolchain_status, termux_loop
+        toolchain_status._CACHE = (0.0, None)
+        with mock.patch.object(toolchain_status, "_applets",
+                               side_effect=[["grep", "tar"], ["ps", "top"]]), \
+             mock.patch.object(termux_loop, "termux_ready", return_value=True):
+            output, metadata = tools.REGISTRY["toolchain_status"].fn(self.ctx())
+        self.assertEqual(metadata["busybox"]["count"], 2)
+        self.assertEqual(metadata["toybox"]["count"], 2)
+        self.assertTrue(metadata["termux"]["connected"])
+        self.assertIn("tar", output)
 
     def test_github_token_kind_and_handover_to_termux(self):
         from . import github, runtime_manager, termux_loop

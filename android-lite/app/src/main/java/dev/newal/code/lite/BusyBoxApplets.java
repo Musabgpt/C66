@@ -15,11 +15,24 @@ import java.nio.file.Path;
  * the command interpreter, so the agent does not need to request BusyBox by name.
  */
 final class BusyBoxApplets {
+    // Only applets compiled into the pinned Android native binary are linked.
+    // Preserve the Android shell, system Toybox and Termux's own executables.
     static final String[] NAMES = {
-        "busybox", "awk", "basename", "cat", "cp", "cut", "dirname", "env",
-        "find", "grep", "head", "ls", "mkdir", "mv", "readlink", "realpath",
-        "rm", "sed", "sleep", "sort", "tail", "touch", "tr", "uname",
-        "wc", "xargs"
+        "busybox", "awk", "basename", "cat", "cp", "cut", "dirname",
+        "env", "printenv", "find", "grep", "egrep", "fgrep", "head",
+        "ls", "mkdir", "rmdir", "mv", "ln", "readlink", "realpath",
+        "rm", "sed", "sleep", "sort", "tail", "touch", "tr",
+        "uname", "wc", "xargs", "echo", "printf", "pwd", "true",
+        "false", "test", "date", "stat", "du", "df", "id",
+        "whoami", "groups", "which", "seq", "yes", "tee", "uniq",
+        "comm", "diff", "patch", "sha256sum", "sha512sum", "sha1sum", "md5sum",
+        "cksum", "base64", "base32", "gzip", "gunzip", "zcat", "tar",
+        "bzip2", "bunzip2", "bzcat", "unzip", "xz", "unxz", "xzcat",
+        "ps", "top", "free", "uptime", "pidof", "kill", "killall",
+        "nice", "nohup", "timeout", "wget", "httpd", "ping",
+        "netstat", "nc", "crond", "crontab", "cal", "clear", "less",
+        "more", "vi", "expr", "od", "hexdump", "strings", "split",
+        "mkfifo", "mktemp"
     };
 
     private BusyBoxApplets() { }

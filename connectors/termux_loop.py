@@ -58,11 +58,31 @@ def in_project(ctx, command, runtime=None):
 # Safe commands provided by the packaged Android BusyBox (plus shell built-ins).
 # Preserve Termux for npm, node, gh, SDKs, git, Python environments and mixed/complex scripts.
 LOCAL_APPLETS = frozenset((
-    "busybox", "awk", "basename", "cat", "cp", "cut", "dirname", "env",
+    "busybox", "toybox", "awk", "basename", "cat", "cp", "cut", "dirname", "env",
     "find", "grep", "head", "ls", "mkdir", "mv", "readlink", "realpath",
     "rm", "sed", "sleep", "sort", "tail", "touch", "tr", "uname", "wc",
-    "xargs", "echo", "printf", "pwd", "true", "false", "test"
+    "xargs", "echo", "printf", "pwd", "true", "false", "test",
+    "tar", "unzip", "gzip", "gunzip", "bzip2", "bunzip2", "xz", "unxz",
+    "sha256sum", "sha512sum", "sha1sum", "md5sum", "base64", "base32",
+    "date", "stat", "du", "df", "id", "whoami", "which", "seq", "tee",
+    "uniq", "comm", "diff", "patch", "ps", "top", "free", "uptime",
+    "pidof", "kill", "nice", "nohup", "timeout", "mktemp", "ln",
+    "rmdir", "expr", "hexdump", "od", "strings", "split", "printenv",
 ))
+TERMUX_COMMANDS = frozenset((
+    "pkg", "apt", "apt-get", "dpkg", "pip", "pip3", "uv", "python", "python3",
+    "node", "npm", "npx", "yarn", "pnpm", "git", "gh", "bash", "sh", "make",
+    "cmake", "clang", "gcc", "g++", "gradle", "java", "javac", "curl",
+    "wget", "ssh", "scp", "cargo", "rustc", "ffmpeg", "yt-dlp",
+))
+
+
+def needs_termux(command):
+    """Only route known development/package commands when project is app-private."""
+    try:
+        return shlex.split(str(command or ""), posix=True)[0] in TERMUX_COMMANDS
+    except (ValueError, IndexError):
+        return False
 
 
 def local_busybox_command(command):
@@ -107,11 +127,15 @@ def routes(ctx, command=None):
     try:
         from . import lean
         project = str(getattr(ctx, "root", "") or "")
-        routed = lean.active() and not in_termux() and reachable(project) and termux_ready()
-        if routed and command is not None and local_busybox_command(command):
-            # If Android cannot read the project, Termux may have the needed permission.
-            return not os.access(project, os.R_OK | os.X_OK)
-        return routed
+        if not lean.active() or in_termux() or not termux_ready():
+            return False
+        if command is not None and local_busybox_command(command) and os.access(project, os.R_OK | os.X_OK):
+            return False
+        if not reachable(project):
+            # npm/pkg/gh and other heavy tools still work in Termux's own HOME
+            # even when the APK-private project cannot be read by Termux.
+            return command is not None and needs_termux(command)
+        return True
     except Exception:  # noqa: BLE001
         return False
 
@@ -195,7 +219,7 @@ def wrap_bash():
 
 
 def wrap_phone():
-    """A local server's page opens in Chrome (the default browser when Chrome is missing)."""
+    """Open all ordinary web links in installed Chrome, with a browser fallback if absent."""
     t = tools.REGISTRY.get("phone")
     if t is None or getattr(t.fn, "_chrome", False):
         return
@@ -203,7 +227,7 @@ def wrap_phone():
 
     def phone(ctx, action, **args):
         url = str(args.get("url") or "")
-        if action == "open_url" and LOCAL.match(url) and not args.get("package"):
+        if action == "open_url" and url.lower().startswith(("https://", "http://")) and not args.get("package"):
             try:
                 return inner(ctx, action, **dict(args, package=CHROME))
             except tools.ToolError as e:

@@ -41,6 +41,15 @@ class BusyBoxIntegration(unittest.TestCase):
             self.assertIn(' ' + name + ' ', build)
         self.assertIn('NEWAL_BUSYBOX_AUTO', (ROOT / "connectors/termux_loop.py").read_text())
         self.assertIn('busybox_auto', (ROOT / "connectors/agent_policy.py").read_text())
+        self.assertIn('NEWAL_TOYBOX', SETUP.read_text())
+        self.assertIn('toolchain_status', (ROOT / "connectors/lean.py").read_text())
+        self.assertIn('phone_sequence', (ROOT / "connectors/phone_fast.py").read_text())
+        for name in ("TAR", "UNZIP", "GZIP", "HTTPD", "CROND", "CRONTAB",
+                     "WGET", "PS", "TOP", "SHA256SUM", "DIFF", "PATCH"):
+            self.assertIn(' ' + name + ' ', build)
+            self.assertIn('"' + name.lower() + '"', code)
+        self.assertNotIn('"toybox",', code)  # System Toybox stays on /system/bin.
+        self.assertNotIn('"sh",', code)      # Never replace Android's /system/bin/sh.
 
     def test_actual_android_elf_binaries(self):
         for abi, machine in EXPECTED.items():

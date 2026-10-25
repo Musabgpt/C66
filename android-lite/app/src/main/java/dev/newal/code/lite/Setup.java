@@ -153,6 +153,12 @@ final class Setup {
             env.put("NEWAL_BUSYBOX", new File(bin, "busybox").getAbsolutePath());
             env.put("NEWAL_BUSYBOX_AUTO", "1");
         }
+        // Toybox ships with Android itself. Use its system executable instead
+        // of shipping duplicate native binaries or pretending to gain root.
+        File systemToybox = new File("/system/bin/toybox");
+        if (systemToybox.canExecute()) {
+            env.put("NEWAL_TOYBOX", systemToybox.getAbsolutePath());
+        }
         env.put("LD_LIBRARY_PATH", libDir);
         env.put("SSL_CERT_FILE", new File(python, "cacert.pem").getPath());
         env.put("TMPDIR", ctx.getCacheDir().getPath());

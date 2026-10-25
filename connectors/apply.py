@@ -508,3 +508,13 @@ if __name__ == "__main__":
     apply_parity.apply(target)
     import apply_scheduled_tasks
     apply_scheduled_tasks.apply(target / "connectors", target / "desktop/newal_code", replace)
+    # Inventory is loaded only after the pinned engine's tools and all other
+    # connector extensions have been installed.
+    shutil.copyfile(target / "connectors/toolchain_status.py",
+                    target / "desktop/newal_code/toolchain_status.py")
+    replace(target / "desktop/newal_code/tools.py",
+            "from . import scheduled_tasks as _scheduled_tasks\n",
+            "from . import scheduled_tasks as _scheduled_tasks\n"
+            "from . import toolchain_status as _toolchain_status\n")
+    replace(target / "desktop/newal_code/tools.py",
+            " + _scheduled_tasks.NAMES", " + _scheduled_tasks.NAMES + _toolchain_status.NAMES")
