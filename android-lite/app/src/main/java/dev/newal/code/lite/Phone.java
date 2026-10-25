@@ -53,7 +53,11 @@ final class Phone {
 
     static JSONObject handle(Context ctx, JSONObject a) throws Exception {
         String action = a.optString("action");
-        AutomationStore.record(action, a);
+        // Text entered into web forms may contain private user information.
+        // A bounded UI sequence can opt out of routine recording for typing.
+        if (!(a.optBoolean("private", false) && "type".equals(action))) {
+            AutomationStore.record(action, a);
+        }
         switch (action) {
             case "document_pdf":
                 return DocumentFiles.pdf(ctx, a);
