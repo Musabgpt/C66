@@ -20,7 +20,7 @@
   }
   const status = { active: "نشطة", running: "قيد التنفيذ", paused: "موقوفة",
                    done: "اكتملت" };
-  const types = { reminder: "تذكير", agent: "فحص ذكي", watch: "مراقبة شرط" };
+  const types = { reminder: "تذكير", agent: "مهمة ينفّذها الوكيل", watch: "مراقبة وتنفيذ عند تحقق الشرط" };
   let panel, list;
   function close() { if (panel) panel.hidden = true; }
   function showError(err) {
@@ -59,7 +59,10 @@
         esc(task.status === "done" ? "اكتملت" : prettyTime(task.next_run)) +
         (task.repeat_seconds ? " · تتكرر كل " + Math.round(task.repeat_seconds / 60) + " دقيقة" : "") +
         (task.last_run ? "<span> · آخر تشغيل: " + esc(prettyTime(task.last_run)) + "</span>" : "") +
-        '</p>' + (task.last_result ? '<p class="s-task-last">النتيجة: ' +
+        '</p>' + (task.kind !== "reminder"
+          ? '<p class="s-task-meta">الصلاحيات: ' +
+            (task.permission_mode === "read-only" ? "قراءة فقط" : "تنفيذ كامل") + '</p>' : "") +
+        (task.last_result ? '<p class="s-task-last">النتيجة: ' +
         esc(task.last_result.slice(0, 280)) + '</p>' : "") +
         '<div class="s-task-actions"></div>';
       const actions = $(".s-task-actions", el);
@@ -100,13 +103,16 @@
       '<label>عنوان المهمة<input name="title" maxlength="140" required placeholder="مثلاً: تفقد بناء APK"></label>' +
       '<label>ماذا تريد؟<textarea name="prompt" maxlength="4000" rows="3" required placeholder="ذكّرني أو افحص شيئاً وأخبرني بالنتيجة"></textarea></label>' +
       '<div class="s-task-fields"><label>نوع المهمة<select name="kind">' +
-      '<option value="reminder">تذكير فقط</option><option value="agent">فحص ذكي بالوكيل (قراءة فقط)</option>' +
-      '<option value="watch">مراقبة شرط وإشعار عند تحققه</option></select></label>' +
+      '<option value="reminder">تذكير فقط (إشعار)</option><option value="agent" selected>مهمة كاملة ينفّذها الوكيل</option>' +
+      '<option value="watch">مراقبة شرط وتنفيذ المهمة عند تحققه</option></select></label>' +
       '<label>التكرار<select name="repeat">' +
       '<option value="0">مرة واحدة</option><option value="60">كل ساعة</option>' +
       '<option value="1440">كل يوم</option><option value="10080">كل أسبوع</option></select></label></div>' +
+      '<label>الصلاحيات عند التنفيذ<select name="permission_mode">' +
+      '<option value="full-auto" selected>تنفيذ كامل: ملفات، تطبيقات، إعدادات، GitHub</option>' +
+      '<option value="read-only">قراءة فقط (اختياري)</option></select></label>' +
       '<label>أول تشغيل (بتوقيت هاتفك)<input type="datetime-local" name="when"></label>' +
-      '<small>في المهام المتكررة، اترك الوقت فارغاً ليبدأ بعد أول فترة تكرار. الفحص الذكي يستخدم النموذج المتوفر وقت التنفيذ.</small>' +
+      '<small>المهام تعمل بالأدوات والصلاحيات المتاحة فعلياً للتطبيق. لتنفيذ المهام على الهاتف يلزم تفعيل الصلاحيات ذات الصلة. المهام المتكررة تبدأ بعد أول فترة إذا تركت الوقت فارغاً.</small>' +
       '<button type="submit" class="s-task-save">إنشاء المهمة</button></form>' +
       '<h3>مهامي</h3><div id="scheduled-list"></div></div></div>';
     document.body.appendChild(panel);
@@ -131,7 +137,8 @@
       const requestBody = {
         title: String(d.get("title") || "").trim(),
         prompt: String(d.get("prompt") || "").trim(),
-        kind: String(d.get("kind") || "reminder"),
+        kind: String(d.get("kind") || "agent"),
+        permission_mode: String(d.get("permission_mode") || "full-auto"),
         repeat_minutes: frequency,
         when: local ? new Date(local).toISOString() : "",
       };
@@ -140,6 +147,13 @@
       const save = $(".s-task-save", form);
       save.disabled = true;
       try {
+        // Scheduled project jobs should reopen the actual project, not an unrelated HOME.
+        const current = typeof window.NewAlWorkspaceSession === "function"
+          ? window.NewAlWorkspaceSession() : "";
+        if (current) {
+          const info = await request("/api/sessions/" + encodeURIComponent(current));
+          requestBody.root = info.meta && info.meta.root || "";
+        }
         await request("/api/scheduled-tasks", requestBody);
         form.reset();
         await refresh();

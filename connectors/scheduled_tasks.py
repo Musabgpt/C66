@@ -1,4 +1,4 @@
-"""Persistent, user-controlled scheduled reminders and read-only agent checks.
+"""Persistent scheduled reminders, autonomous phone tasks and condition watches.
 
 Schedules are stored in the application's private SQLite database. The scheduler
 runs with MusabAI's foreground Python service; Android can delay or stop it, so
@@ -22,6 +22,7 @@ from . import settings, tools
 NAMES = ["scheduled_task_create", "scheduled_task_list", "scheduled_task_pause",
          "scheduled_task_resume", "scheduled_task_delete"]
 KINDS = ("reminder", "agent", "watch")
+EXECUTION_MODES = ("full-auto", "read-only")
 MAX_TASKS = 100
 MAX_PROMPT = 4000
 MIN_REPEAT = 60  # minute; avoid runaway external checks
@@ -43,8 +44,15 @@ def _connect():
         kind TEXT NOT NULL, created REAL NOT NULL, next_run REAL NOT NULL,
         repeat_seconds INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'active',
         last_run REAL, last_result TEXT NOT NULL DEFAULT '', attempts INTEGER NOT NULL DEFAULT 0,
-        session_id TEXT NOT NULL DEFAULT '', root TEXT NOT NULL DEFAULT ''
+        session_id TEXT NOT NULL DEFAULT '', root TEXT NOT NULL DEFAULT '',
+        permission_mode TEXT NOT NULL DEFAULT 'full-auto'
     )""")
+    # Older versions created these jobs as forced read-only. The user explicitly
+    # chose autonomous execution; restore this capability for their saved tasks.
+    columns = {rec["name"] for rec in db.execute("PRAGMA table_info(scheduled_tasks)")}
+    if "permission_mode" not in columns:
+        db.execute("ALTER TABLE scheduled_tasks ADD COLUMN permission_mode TEXT "
+                   "NOT NULL DEFAULT 'full-auto'")
     try:
         with db:
             yield db
@@ -87,7 +95,7 @@ def _at(when, delay_minutes, repeat_minutes):
 
 
 def create(title, prompt, when="", delay_minutes=0, repeat_minutes=0,
-           kind="reminder", root=""):
+           kind="reminder", root="", permission_mode="full-auto"):
     title, prompt = str(title or "").strip(), str(prompt or "").strip()
     if not title or len(title) > 140:
         raise ValueError("A task title (1-140 characters) is required")
@@ -95,6 +103,8 @@ def create(title, prompt, when="", delay_minutes=0, repeat_minutes=0,
         raise ValueError("Task instructions must be 1-4000 characters")
     if kind not in KINDS:
         raise ValueError("kind must be reminder, agent or watch")
+    if permission_mode not in EXECUTION_MODES:
+        raise ValueError("permission_mode must be full-auto or read-only")
     repeat_minutes = int(repeat_minutes or 0)
     if repeat_minutes and (repeat_minutes < MIN_REPEAT or repeat_minutes > 525600):
         raise ValueError("Recurring tasks must be every 60-525600 minutes")
@@ -104,7 +114,8 @@ def create(title, prompt, when="", delay_minutes=0, repeat_minutes=0,
     task = dict(id=uuid.uuid4().hex[:16], title=title, prompt=prompt, kind=kind,
                 created=time.time(), next_run=due, repeat_seconds=repeat_minutes * 60,
                 status="active", last_run=None, last_result="", attempts=0,
-                session_id="", root=str(root or "")[:1000])
+                session_id="", root=str(root or "")[:1000],
+                permission_mode=permission_mode)
     with _connect() as db:
         count = db.execute("SELECT COUNT(*) FROM scheduled_tasks WHERE status IN "
                            "('active', 'running', 'paused')").fetchone()[0]
@@ -112,9 +123,9 @@ def create(title, prompt, when="", delay_minutes=0, repeat_minutes=0,
             raise ValueError("Maximum 100 active/paused tasks. Delete old tasks first.")
         db.execute("""INSERT INTO scheduled_tasks
                    (id,title,prompt,kind,created,next_run,repeat_seconds,status,
-                    last_run,last_result,attempts,session_id,root)
+                    last_run,last_result,attempts,session_id,root,permission_mode)
                    VALUES (:id,:title,:prompt,:kind,:created,:next_run,:repeat_seconds,:status,
-                           :last_run,:last_result,:attempts,:session_id,:root)""", task)
+                           :last_run,:last_result,:attempts,:session_id,:root,:permission_mode)""", task)
     return task
 
 
@@ -159,7 +170,7 @@ def _claim(now=None):
         return _dict(row)
 
 
-def _complete(row, result, session="", at=None):
+def _complete(row, result, session="", at=None, triggered=False):
     now = time.time() if at is None else at
     period = int(row["repeat_seconds"])
     if period:
@@ -168,10 +179,13 @@ def _complete(row, result, session="", at=None):
             (now - float(row["next_run"])) / period) + 1) * period
     else:
         next_run = float(row["next_run"])
+    # Condition watches are one-shot triggers: do not repeat a potentially
+    # external side effect hourly after the condition becomes true.
+    again = bool(period) and not (row["kind"] == "watch" and triggered)
     with _connect() as db:
         db.execute("UPDATE scheduled_tasks SET status=?, next_run=?, last_run=?, "
                    "last_result=?, session_id=?, attempts=0 WHERE id=? AND status='running'",
-                   ("active" if period else "done", next_run, now,
+                   ("active" if again else "done", next_run, now,
                     str(result or "")[:4000], session, row["id"]))
 
 
@@ -207,17 +221,28 @@ def _run_agent(service, row):
     root = row.get("root") or os.environ.get("HOME") or str(Path.home())
     if not os.path.isdir(root):
         root = os.environ.get("HOME") or str(Path.home())
-    session = service.create(root, mode="read-only", worktree=False)
+    mode = row.get("permission_mode") or "full-auto"
+    session = service.create(root, mode=mode, worktree=False)
     prompt = row["prompt"]
     if row["kind"] == "watch":
-        prompt = ("Check the following condition using read-only tools and available data. "
-                  "If it has not become true, or there is no new meaningful information, "
-                  "reply with exactly NO_CHANGE. If true, briefly report the evidence. "
-                  "Do not take write/send actions.\nCondition:\n" + prompt)
+        prompt = ("This is a scheduled condition-triggered task explicitly authorized by the user. "
+                  "First determine whether the condition is satisfied. If not, reply exactly NO_CHANGE "
+                  "and take no action. If it is satisfied, perform only the requested actions using "
+                  "the enabled phone, shell, GitHub and other tools, verify the result, then report it. "
+                  "A successful trigger stops this watch to prevent repeated side effects. "
+                  "Respect Android permissions and do not invent capabilities.\n"
+                  "Condition and requested actions:\n" + prompt)
     else:
-        prompt = ("This is a scheduled check. Read-only research and inspection only; "
-                  "do not make changes or send messages. Report what you found.\n" + prompt)
-    answer = service.agent(session.id).run(prompt, verify=False)
+        prompt = ("This scheduled task was requested by the user. Execute it now, rather than just "
+                  "describing what to do. Use the phone tool for alarms/apps/settings and the actual "
+                  "coding, GitHub and shell tools for software tasks when available. "
+                  "Verify each action and report actual outcomes; respect missing Android permissions "
+                  "and existing safeguards for operations beyond the user's stated request.\n"
+                  "User's task:\n" + prompt)
+    if mode == "read-only":
+        prompt = ("This individual scheduled task was explicitly configured as read-only. "
+                  "Inspect and report; do not perform modifications or external actions.\n" + prompt)
+    answer = service.agent(session.id).run(prompt)
     return str(answer or ""), session.id
 
 
@@ -233,7 +258,8 @@ def run_one(service, now=None):
             text, sid = _run_agent(service, row)
             if row["kind"] != "watch" or text.strip() != "NO_CHANGE":
                 _notify(row["title"], text or "(No response from the configured model)")
-        _complete(row, text, sid, at=now)
+        _complete(row, text, sid, at=now,
+                  triggered=(row["kind"] == "watch" and text.strip() != "NO_CHANGE"))
     except Exception as exc:  # Keep the task for bounded retry; never call it a success.
         _failure(row, exc)
     return True
@@ -285,7 +311,8 @@ def route(handler, method, path, body=None):
                          when=args.get("when") or "",
                          delay_minutes=args.get("delay_minutes") or 0,
                          repeat_minutes=args.get("repeat_minutes") or 0,
-                         kind=args.get("kind") or "reminder", root=args.get("root") or "")
+                         kind=args.get("kind") or "reminder", root=args.get("root") or "",
+                         permission_mode=args.get("permission_mode") or "full-auto")
             handler._json({"ok": True, "task": obj})
             return True
         match = re.fullmatch(r"/api/scheduled-tasks/([0-9a-f]{16})/(pause|resume|delete|run)", path)
@@ -302,22 +329,27 @@ def route(handler, method, path, body=None):
 
 @tools.tool("scheduled_task_create",
             "Create an actual persisted scheduled task on this phone. For a reminder it notifies at its due time; "
-            "for agent it runs a new read-only AI check and notifies the result; watch repeats a condition "
-            "check and notifies only when changed. Provide when as ISO-8601 with timezone, or delay_minutes; "
+            "for agent it executes the user's requested actions with normal full agent tools, including "
+            "phone alarms, apps, GitHub, coding and Termux, unless permission_mode=read-only was chosen. "
+            "watch checks a condition and performs the authorized task on first trigger, then stops. "
+            "For a simple reminder use kind=reminder (only posts a notification); for a phone action "
+            "such as setting an alarm use kind=agent. Provide timezone-aware when or delay_minutes; "
             "repeat_minutes >=60 for recurrence. The app service must stay running; Android may delay delivery.",
             {"title": tools._s("Short notification title"),
              "prompt": tools._s("Reminder text, research request or condition to check"),
              "when": tools._s("Future ISO-8601 datetime WITH timezone; omit if delay_minutes or repeat_minutes"),
              "delay_minutes": tools._i("Minutes from now until the first execution; omit if when"),
              "repeat_minutes": tools._i("0 for once; >=60 for recurring task"),
-             "kind": {"type": "string", "enum": list(KINDS)}},
+             "kind": {"type": "string", "enum": list(KINDS)},
+             "permission_mode": {"type": "string", "enum": list(EXECUTION_MODES)}},
             ["title", "prompt"], "edit")
-def tool_create(ctx, title, prompt, when="", delay_minutes=0, repeat_minutes=0, kind="reminder"):
+def tool_create(ctx, title, prompt, when="", delay_minutes=0, repeat_minutes=0, kind="reminder",
+                permission_mode="full-auto"):
     if getattr(getattr(ctx, "session", None), "mode", "") == "read-only":
         raise tools.ToolError("Read-only mode cannot create scheduled tasks")
     try:
         task = create(title, prompt, when, delay_minutes, repeat_minutes, kind,
-                      root=getattr(ctx, "root", ""))
+                      root=getattr(ctx, "root", ""), permission_mode=permission_mode)
     except (ValueError, OverflowError) as exc:
         raise tools.ToolError(str(exc)) from exc
     return json.dumps(task, ensure_ascii=False), task
