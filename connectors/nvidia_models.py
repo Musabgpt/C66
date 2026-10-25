@@ -44,8 +44,13 @@ def _fetch_catalog(key):
     data = json.loads(raw.decode("utf-8"))
     if not isinstance(data, dict):
         return []
+    # The NVIDIA catalog includes embedding, reranking, audio and other
+    # endpoints. Only expose conversational models in MusabAI's chat picker.
+    excluded = ("embed", "rerank", "retrieval", "whisper", "asr",
+                "text-to-speech", "speech-to-text", "audio", "image-gen")
     return [item["id"] for item in (data.get("data") or [])
-            if isinstance(item, dict) and isinstance(item.get("id"), str)]
+            if isinstance(item, dict) and isinstance(item.get("id"), str)
+            and not any(word in item["id"].lower() for word in excluded)]
 
 
 def models():
