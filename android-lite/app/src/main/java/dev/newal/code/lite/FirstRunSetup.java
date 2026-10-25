@@ -26,6 +26,7 @@ final class FirstRunSetup {
     static final int TERMUX_REQUEST = 505;
     private static boolean active;
     private static boolean waitingSettings;
+    private static int waitingFor;
     private static boolean waitingPermission;
     private static boolean dialogOpen;
     private static boolean termuxAsked;
@@ -52,11 +53,11 @@ final class FirstRunSetup {
         next(a);
     }
 
-    private static void prompt(MainActivity a, String title, String message, Runnable open) {
+    private static void prompt(MainActivity a, String title, String message, int step, Runnable open) {
         dialogOpen = true;
         new AlertDialog.Builder(a).setTitle(title).setMessage(message)
           .setPositiveButton("فتح الإعداد المطلوب", (d, w) -> {
-              dialogOpen = false; waitingSettings = true;
+              dialogOpen = false; waitingSettings = true; waitingFor = step;
               try { open.run(); } catch (RuntimeException ex) {
                   waitingSettings = false; a.showSetupError("تعذر فتح الإعداد. تستطيع التفعيل يدوياً.");
               }
@@ -71,7 +72,8 @@ final class FirstRunSetup {
         waitingSettings = false;
         MAIN.postDelayed(() -> {
             if (!active) return;
-            if (!Settings.canDrawOverlays(a) || !A11y.enabled(a)) {
+            if ((waitingFor == 1 && !Settings.canDrawOverlays(a)) ||
+                (waitingFor == 2 && !A11y.enabled(a))) {
                 // A denied permission is never treated as granted. Allow retry
                 // via the explicit Setup button rather than an infinite settings loop.
                 a.showSetupError("لم تكتمل إحدى الصلاحيات. اضغط تهيئة مجدداً للمحاولة.");
@@ -98,14 +100,14 @@ final class FirstRunSetup {
         if (!active || dialogOpen || waitingPermission || waitingSettings) return;
         if (Build.VERSION.SDK_INT >= 23 && !Settings.canDrawOverlays(a)) {
             prompt(a, "١ — الفقاعة العائمة",
-                    "اسمح بالظهور فوق التطبيقات. أندرويد يشترط اختيار هذه الصلاحية بنفسك.",
+                    "اسمح بالظهور فوق التطبيقات. أندرويد يشترط اختيار هذه الصلاحية بنفسك.", 1,
                     () -> a.startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                         Uri.parse("package:" + a.getPackageName()))));
             return;
         }
         if (!A11y.enabled(a)) {
             prompt(a, "٢ — التحكم بالشاشة",
-                    "فعّل خدمة NewAl Code من إمكانية الوصول. بدونها لا يستطيع MusabAI تعبئة النماذج أو الضغط في Chrome.",
+                    "فعّل خدمة NewAl Code من إمكانية الوصول. بدونها لا يستطيع MusabAI تعبئة النماذج أو الضغط في Chrome.", 2,
                     () -> a.startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)));
             return;
         }
