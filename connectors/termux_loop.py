@@ -1,10 +1,9 @@
 """The Termux loop on the phone, without the agent having to know where things run.
 
-* One shell. The app's own shell has none of Termux's programs (no node, npm, git, gh or curl), and commands that went
-  to Termux started in Termux's home, not in the project. On the phone, with Termux connected and the project in
-  shared storage (which Termux sees at the same path), bash runs in Termux, in the project folder: a short command in
-  one request, a longer one as a process followed to its end, background=true as a process the agent reads with
-  runtime_process_status. runtime_exec and runtime_process_start also start in the project folder.
+* Automatic BusyBox. Small file/search/shell commands run in the app's native BusyBox environment, even
+  with Termux connected, if Android can access the project. Users do not need to request busybox explicitly.
+  Termux keeps running node, npm, gh, SDKs, heavier scripts and complex mixed commands, in the shared project.
+  The existing permissions, timeouts and job cancellation still apply; no command is automatically rerun.
 * Chrome. A page of a local server (127.0.0.1, localhost) opens in Chrome, not in whatever browser is the default
   (Samsung Internet on many phones); the default browser when Chrome is not installed.
 * One GitHub login. A token connected in the app is given to gh and git in Termux too, so a push uses the token the
@@ -56,11 +55,63 @@ def in_project(ctx, command, runtime=None):
     return "cd %s 2>/dev/null; %s" % (shlex.quote(root), command)
 
 
-def routes(ctx):
-    """bash goes to Termux: on the phone (lean), from the app's engine, Termux connected, the project visible there."""
+# Safe commands provided by the packaged Android BusyBox (plus shell built-ins).
+# Preserve Termux for npm, node, gh, SDKs, git, Python environments and mixed/complex scripts.
+LOCAL_APPLETS = frozenset((
+    "busybox", "awk", "basename", "cat", "cp", "cut", "dirname", "env",
+    "find", "grep", "head", "ls", "mkdir", "mv", "readlink", "realpath",
+    "rm", "sed", "sleep", "sort", "tail", "touch", "tr", "uname", "wc",
+    "xargs", "echo", "printf", "pwd", "true", "false", "test"
+))
+
+
+def local_busybox_command(command):
+    """Conservatively choose the on-phone shell without rerunning a partially completed command.
+
+    Only known, explicitly bundled commands (including simple pipelines) qualify.
+    Complex scripts and commands needing a package manager keep the old Termux route.
+    """
+    binary = os.environ.get("NEWAL_BUSYBOX") or ""
+    if os.environ.get("NEWAL_BUSYBOX_AUTO") != "1" or not os.path.isfile(binary):
+        return False
+    cmd = str(command or "").strip()
+    if not cmd or any(token in cmd for token in ("\\n", "\\r", ";", "&&", "||", "$(", "`", "<", ">")):
+        return False
+    try:
+        lexer = shlex.shlex(cmd, posix=True, punctuation_chars="|")
+        lexer.whitespace_split = True
+        lexer.commenters = ""
+        tokens = list(lexer)
+    except ValueError:
+        return False
+    expecting_command = True
+    found = False
+    for token in tokens:
+        if token == "|":
+            if expecting_command:
+                return False
+            expecting_command = True
+        elif expecting_command:
+            if token not in LOCAL_APPLETS:
+                return False
+            found = True
+            expecting_command = False
+    return found and not expecting_command
+
+
+def routes(ctx, command=None):
+    """Use BusyBox in MusabAI for local commands; Termux only when its runtimes are needed.
+
+    A call without a command retains legacy route detection for existing integrations.
+    """
     try:
         from . import lean
-        return lean.active() and not in_termux() and reachable(getattr(ctx, "root", "")) and termux_ready()
+        project = str(getattr(ctx, "root", "") or "")
+        routed = lean.active() and not in_termux() and reachable(project) and termux_ready()
+        if routed and command is not None and local_busybox_command(command):
+            # If Android cannot read the project, Termux may have the needed permission.
+            return not os.access(project, os.R_OK | os.X_OK)
+        return routed
     except Exception:  # noqa: BLE001
         return False
 
@@ -130,8 +181,14 @@ def wrap_bash():
     original = t.fn
 
     def bash(ctx, command, timeout=120, background=False):
-        if not routes(ctx):
-            return original(ctx, command, timeout=timeout, background=background)
+        if not routes(ctx, command):
+            result = original(ctx, command, timeout=timeout, background=background)
+            if local_busybox_command(command) and isinstance(result, tuple) and len(result) == 2:
+                body, meta = result
+                meta = dict(meta)
+                meta["runtime"] = "android-busybox"
+                return body, meta
+            return result
         return run_in_termux(ctx, command, timeout, background)
     bash._termux = True
     t.fn = bash
