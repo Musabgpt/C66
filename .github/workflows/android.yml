@@ -132,6 +132,8 @@ jobs:
           node --check desktop/newal_code/ui/workspace.js
           node --check desktop/newal_code/ui/mcp_ui.js
           node --check desktop/newal_code/ui/cursor_ui.js
+          node --check desktop/newal_code/ui/scheduled_tasks.js
+          PYTHONPATH=desktop python3 -m unittest newal_code.scheduled_tasks_tests -v
       - name: Evaluate deterministic routing contracts with Promptfoo
         env:
           PYTHONPATH: desktop
