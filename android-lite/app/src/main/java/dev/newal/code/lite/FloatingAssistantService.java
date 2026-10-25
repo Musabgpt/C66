@@ -53,6 +53,7 @@ public final class FloatingAssistantService extends Service implements Recogniti
     private int speechFailures;
     private String sessionId = "";
     private String lastSpeech = "";
+    private String lastStatus = "جاهز. اكتب الأمر، أو فعّل الاستماع مرة واحدة.";
     private long lastSpeechAt;
     private final Runnable restartSpeech = this::startRecognition;
     private android.speech.tts.TextToSpeech tts;
@@ -181,7 +182,7 @@ public final class FloatingAssistantService extends Service implements Recogniti
 
         TextView title = label("✦ MusabAI     •     مساعدك العائم", 17, Color.WHITE);
         panel.addView(title);
-        status = label("جاهز. اكتب الأمر، أو فعّل الاستماع مرة واحدة.", 13, 0xffb6d5e1);
+        status = label(lastStatus, 13, 0xffb6d5e1);
         status.setMaxLines(5); panel.addView(status);
         input = new EditText(this);
         input.setTextColor(Color.WHITE); input.setHintTextColor(0xff9daeb5);
@@ -227,7 +228,12 @@ public final class FloatingAssistantService extends Service implements Recogniti
     }
 
     private void postNotice(String text) {
-        ui.post(() -> { if (status != null) status.setText(text); });
+        ui.post(() -> {
+            lastStatus = text;
+            if (status != null) status.setText(text);
+            if (bubbleText != null && busy) bubbleText.setText("⋯");
+            else if (bubbleText != null) updateMic();
+        });
     }
 
     private void updateMic() {
@@ -373,12 +379,24 @@ public final class FloatingAssistantService extends Service implements Recogniti
         postNotice("⏳ عم نفّذ: " + message);
         worker.execute(() -> {
             try {
-                // A user-chosen model remains the default. NVIDIA is available in
-                // the ordinary model picker; the bubble does not replace it.
+                // Follow the model chosen in the normal MusabAI picker. Check the
+                // previous session before sending any command; a stale session is
+                // replaced safely, without repeating a side effect.
+                JSONObject state = request("GET", "/api/state", null);
+                String model = state.optJSONObject("settings") == null ? "auto" :
+                        state.optJSONObject("settings").optString("model", "auto");
+                if (!sessionId.isEmpty()) {
+                    try {
+                        JSONObject existing = request("GET", "/api/sessions/" + sessionId, null);
+                        JSONObject meta = existing.optJSONObject("meta");
+                        if (meta != null && !model.equals(meta.optString("model")))
+                            request("POST", "/api/sessions/" + sessionId + "/settings",
+                                    new JSONObject().put("model", model));
+                    } catch (Exception missing) {
+                        sessionId = "";
+                    }
+                }
                 if (sessionId.isEmpty()) {
-                    JSONObject state = request("GET", "/api/state", null);
-                    String model = state.optJSONObject("settings") == null ? "auto" :
-                            state.optJSONObject("settings").optString("model", "auto");
                     JSONObject spec = new JSONObject()
                             .put("root", new Setup(this).home.getAbsolutePath())
                             .put("model", model).put("mode", "full-auto").put("warm", false);
