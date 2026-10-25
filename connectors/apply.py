@@ -506,3 +506,5 @@ if __name__ == "__main__":
     apply(target)
     import apply_parity  # connectors/apply_parity.py: Claude Code parity layer (idempotent)
     apply_parity.apply(target)
+    import apply_scheduled_tasks
+    apply_scheduled_tasks.apply(target / "connectors", target / "desktop/newal_code", replace)
