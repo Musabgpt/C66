@@ -97,7 +97,7 @@ class LoopTests(unittest.TestCase):
                 # Existing Termux build flow must never be hijacked or blindly retried.
                 for command in ("npm test", "node server.js", "gh repo clone owner/repo",
                                 "grep foo file | npm test", "echo x; rm -rf /",
-                                "echo $(node --version)", "grep foo\\nnode app.js"):
+                                "echo $(node --version)", "grep foo\nnode app.js"):
                     with self.subTest(command=command):
                         self.assertFalse(termux_loop.local_busybox_command(command))
                         self.assertTrue(termux_loop.routes(self.ctx(), command))
