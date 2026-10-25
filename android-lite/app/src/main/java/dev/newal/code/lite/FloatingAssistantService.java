@@ -47,7 +47,8 @@ public final class FloatingAssistantService extends Service implements Recogniti
     private EditText input;
     private SpeechRecognizer speech;
     private boolean listening;
-    private boolean busy;
+    private volatile boolean busy;
+    private boolean speaking;
     private boolean destroyed;
     private int speechFailures;
     private String sessionId = "";
@@ -68,7 +69,7 @@ public final class FloatingAssistantService extends Service implements Recogniti
             tts = new android.speech.tts.TextToSpeech(this, state -> {
                 ttsReady = state == android.speech.tts.TextToSpeech.SUCCESS;
                 if (ttsReady && tts != null)
-                    tts.setLanguage(new java.util.Locale("ar"));
+                    ttsReady = tts.setLanguage(new java.util.Locale("ar")) >= 0;
             });
         } catch (RuntimeException ignored) { tts = null; }
     }
@@ -257,7 +258,7 @@ public final class FloatingAssistantService extends Service implements Recogniti
     }
 
     private void startRecognition() {
-        if (!listening || destroyed) return;
+        if (!listening || destroyed || speaking) return;
         try {
             if (speech != null) { speech.destroy(); speech = null; }
             speech = SpeechRecognizer.createSpeechRecognizer(this);
@@ -277,7 +278,7 @@ public final class FloatingAssistantService extends Service implements Recogniti
     }
 
     private void retrySpeech() {
-        if (!listening || destroyed) return;
+        if (!listening || destroyed || speaking) return;
         ui.removeCallbacks(restartSpeech);
         ui.postDelayed(restartSpeech, Math.min(8000, 800L * (1L << Math.min(3, speechFailures))));
     }
@@ -289,7 +290,7 @@ public final class FloatingAssistantService extends Service implements Recogniti
     @Override public void onPartialResults(Bundle b) {}
     @Override public void onEvent(int eventType, Bundle params) {}
     @Override public void onError(int error) {
-        if (!listening) return;
+        if (!listening || speaking) return;
         // No match and speech timeout are normal silence, not permanent errors.
         if (error != SpeechRecognizer.ERROR_NO_MATCH && error != SpeechRecognizer.ERROR_SPEECH_TIMEOUT)
             speechFailures++;
@@ -335,6 +336,36 @@ public final class FloatingAssistantService extends Service implements Recogniti
         } finally { c.disconnect(); }
     }
 
+    /** Brief spoken reply after an explicit hands-free command, never fed back as a new command. */
+    private void speakAnswer(String result) {
+        if (!listening || tts == null || !ttsReady || result == null || result.isEmpty()) return;
+        ui.post(() -> {
+            if (!listening || destroyed) return;
+            speaking = true;
+            ui.removeCallbacks(restartSpeech);
+            if (speech != null) {
+                try { speech.cancel(); speech.destroy(); } catch (RuntimeException ignored) {}
+                speech = null;
+            }
+            tts.setOnUtteranceProgressListener(new android.speech.tts.UtteranceProgressListener() {
+                @Override public void onStart(String id) {}
+                @Override public void onDone(String id) { resumeListeningAfterSpeech(); }
+                @Override public void onError(String id) { resumeListeningAfterSpeech(); }
+            });
+            int resultCode = tts.speak(result.substring(0, Math.min(240, result.length())),
+                    android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, "musabai-reply");
+            if (resultCode == android.speech.tts.TextToSpeech.ERROR)
+                resumeListeningAfterSpeech();
+        });
+    }
+
+    private void resumeListeningAfterSpeech() {
+        ui.post(() -> {
+            speaking = false;
+            if (listening && !destroyed) retrySpeech();
+        });
+    }
+
     private void sendCommand(String message) {
         if (message.length() > MAX_COMMAND) { postNotice("الطلب طويل؛ الحد 4000 حرف."); return; }
         if (busy) { postNotice("MusabAI عم ينفذ مهمة سابقة؛ جرّب بعد ما يخلص."); return; }
@@ -359,7 +390,7 @@ public final class FloatingAssistantService extends Service implements Recogniti
                         new JSONObject().put("text", message).put("lang", "ar"));
                 if (!r.optBoolean("started", false)) {
                     String reply = r.optString("reply", "تم إرسال الطلب");
-                    busy = false; postNotice(reply); return;
+                    busy = false; postNotice(reply); speakAnswer(reply); return;
                 }
                 for (int t = 0; t < 900 && !destroyed; t++) {
                     Thread.sleep(1800);
@@ -378,6 +409,7 @@ public final class FloatingAssistantService extends Service implements Recogniti
                     }
                     final String text = answer.isEmpty() ? "انتهت المهمة. افتح MusabAI للتفاصيل." : answer;
                     busy = false; postNotice(text.length() > 300 ? text.substring(0, 300) : text);
+                    speakAnswer(text);
                     break;
                 }
                 if (busy) { busy = false; postNotice("ما قدرت أتأكد من انتهاء المهمة؛ افحص محادثة MusabAI."); }
