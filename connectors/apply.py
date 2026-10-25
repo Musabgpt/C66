@@ -518,3 +518,28 @@ if __name__ == "__main__":
             "from . import toolchain_status as _toolchain_status\n")
     replace(target / "desktop/newal_code/tools.py",
             " + _scheduled_tasks.NAMES", " + _scheduled_tasks.NAMES + _toolchain_status.NAMES")
+    # Extend the normal model registry: NVIDIA appears alongside current models,
+    # not as a replacement for any default or the free-provider fallback pool.
+    shutil.copyfile(target / "connectors/nvidia_models.py",
+                    target / "desktop/newal_code/nvidia_models.py")
+    model_file = target / "desktop/newal_code/models.py"
+    replace(model_file,
+            '    "groq": ("https://api.groq.com/openai/v1", "GROQ_API_KEY"),\n',
+            '    "groq": ("https://api.groq.com/openai/v1", "GROQ_API_KEY"),\n'
+            '    "nvidia": ("https://integrate.api.nvidia.com/v1", "NVIDIA_API_KEY"),\n')
+    replace(model_file,
+            '    for s in _desktop_models():\n        out.setdefault(s["id"], s)\n    return out\n',
+            '    for s in _desktop_models():\n        out.setdefault(s["id"], s)\n'
+            '    from . import nvidia_models\n'
+            '    for s in nvidia_models.models():\n        out.setdefault(s["id"], s)\n'
+            '    return out\n')
+    replace(model_file,
+            '    return onetap.key_for(spec.get("preset") or "")\n',
+            '    if spec.get("secret_id") == "nvidia" or spec.get("preset") == "nvidia":\n'
+            '        from . import provider_pool\n'
+            '        return provider_pool._key(dict(spec, secret_id="nvidia"))\n'
+            '    return onetap.key_for(spec.get("preset") or "")\n')
+    replace(model_file,
+            '                    "api_key_env": key, "patch": prov == "openai" or name.startswith(("gpt-", "o3", "o4", "codex"))}\n',
+            '                    "api_key_env": key, "secret_id": "nvidia" if prov == "nvidia" else "",\n'
+            '                    "patch": prov == "openai" or name.startswith(("gpt-", "o3", "o4", "codex"))}\n')
