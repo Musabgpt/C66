@@ -513,8 +513,8 @@ if __name__ == "__main__":
     shutil.copyfile(target / "connectors/toolchain_status.py",
                     target / "desktop/newal_code/toolchain_status.py")
     replace(target / "desktop/newal_code/tools.py",
-            "from . import scheduled_tasks as _scheduled_tasks\\n",
-            "from . import scheduled_tasks as _scheduled_tasks\\n"
-            "from . import toolchain_status as _toolchain_status\\n")
+            "from . import scheduled_tasks as _scheduled_tasks\n",
+            "from . import scheduled_tasks as _scheduled_tasks\n"
+            "from . import toolchain_status as _toolchain_status\n")
     replace(target / "desktop/newal_code/tools.py",
             " + _scheduled_tasks.NAMES", " + _scheduled_tasks.NAMES + _toolchain_status.NAMES")
