@@ -34,7 +34,10 @@ for abi in "$@"; do
   OUT="$WORK/build-$abi"
   mkdir -p "$OUT"
   make -s -C "$SOURCE" O="$OUT" ARCH="$arch" allnoconfig
-  python3 - "$OUT/.config" ASH ASH_INTERNAL_GLOB SH_IS_ASH CAT LS GREP SED ECHO PWD MKDIR RM CP MV FIND HEAD TAIL PRINTF TEST TRUE FALSE WC SORT CUT TOUCH SLEEP UNAME TR BASENAME DIRNAME ENV AWK XARGS READLINK REALPATH <<'PY'
+  # Broadest applet set we can validate under the Android NDK. Privileged Linux
+  # administration applets (mount, reboot, su, device nodes) cannot grant Android
+  # rights and remain excluded. Non-Android configurations may not compile here.
+  python3 - "$OUT/.config" ASH ASH_INTERNAL_GLOB SH_IS_ASH CAT LS GREP EGREP FGREP SED ECHO PWD MKDIR RMDIR RM CP MV LN FIND HEAD TAIL PRINTF TEST TRUE FALSE WC SORT CUT TOUCH SLEEP UNAME TR BASENAME DIRNAME ENV PRINTENV AWK XARGS READLINK REALPATH DATE STAT DU DF ID WHOAMI GROUPS WHICH SEQ YES TEE UNIQ COMM DIFF PATCH SHA256SUM SHA512SUM SHA1SUM MD5SUM CKSUM BASE64 BASE32 GZIP GUNZIP ZCAT TAR BZIP2 BUNZIP2 BZCAT UNZIP XZ UNXZ XZCAT PS TOP FREE UPTIME PIDOF KILL KILLALL NICE NOHUP TIMEOUT WGET HTTPD NSLOOKUP PING NETSTAT NC CROND CRONTAB CAL CLEAR LESS MORE VI EXPR OD HEXDUMP STRINGS SPLIT MKFIFO MKTEMP <<'PY'
 import pathlib
 import re
 import sys
@@ -49,10 +52,14 @@ for name in sys.argv[2:]:
         contents += f"\n{key}=y\n"
 contents = re.sub(r"^CONFIG_STATIC=y$", "# CONFIG_STATIC is not set", contents, flags=re.M)
 contents = re.sub(r"^CONFIG_FEATURE_SUID=y$", "# CONFIG_FEATURE_SUID is not set", contents, flags=re.M)
+# Prevent a fake secure HTTPS promise: BusyBox's small wget may not validate
+# certificates in this Android build. Our download router uses Python HTTPS
+# verification or the connected Termux curl for https:// URLs instead.
+contents = re.sub(r"^CONFIG_FEATURE_WGET_HTTPS=y$", "# CONFIG_FEATURE_WGET_HTTPS is not set", contents, flags=re.M)
 path.write_text(contents)
 PY
   (yes "" || true) | make -s -C "$SOURCE" O="$OUT" ARCH="$arch" oldconfig >/dev/null
-  for applet in ASH CAT LS GREP SED; do
+  for applet in ASH CAT LS GREP SED TAR UNZIP GZIP PS TOP WGET HTTPD CROND CRONTAB DIFF PATCH SHA256SUM; do
     grep -q "^CONFIG_$applet=y$" "$OUT/.config" || {
       echo "BusyBox $abi missing $applet" >&2; exit 1;
     }
