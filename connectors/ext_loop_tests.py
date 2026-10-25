@@ -192,6 +192,18 @@ class LoopTests(unittest.TestCase):
         self.assertFalse(meta["verified"])
         self.assertIn("not found", result)
 
+    def test_toolchain_reports_real_busybox_toybox_and_connected_termux(self):
+        from . import toolchain_status, termux_loop
+        toolchain_status._CACHE = (0.0, None)
+        with mock.patch.object(toolchain_status, "_applets",
+                               side_effect=[["grep", "tar"], ["ps", "top"]]), \
+             mock.patch.object(termux_loop, "termux_ready", return_value=True):
+            output, metadata = tools.REGISTRY["toolchain_status"].fn(self.ctx())
+        self.assertEqual(metadata["busybox"]["count"], 2)
+        self.assertEqual(metadata["toybox"]["count"], 2)
+        self.assertTrue(metadata["termux"]["connected"])
+        self.assertIn("tar", output)
+
     def test_github_token_kind_and_handover_to_termux(self):
         from . import github, runtime_manager, termux_loop
         self.assertEqual(termux_loop.token_kind("github_pat_" + "a" * 60), "fine-grained")
