@@ -1,7 +1,7 @@
 name: MusabAI — BusyBox Android build
 on:
   push:
-    branches: ["feat/android-busybox"]
+    branches: ["main", "feat/android-busybox"]
   pull_request:
     branches: ["main"]
   workflow_dispatch:
