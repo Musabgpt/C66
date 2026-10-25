@@ -75,7 +75,7 @@ def local_busybox_command(command):
     if os.environ.get("NEWAL_BUSYBOX_AUTO") != "1" or not os.path.isfile(binary):
         return False
     cmd = str(command or "").strip()
-    if not cmd or any(token in cmd for token in ("\\n", "\\r", ";", "&&", "||", "$(", "`", "<", ">")):
+    if not cmd or any(token in cmd for token in ("\n", "\r", ";", "&&", "||", "$(", "`", "<", ">")):
         return False
     try:
         lexer = shlex.shlex(cmd, posix=True, punctuation_chars="|")
