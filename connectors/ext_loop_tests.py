@@ -78,6 +78,49 @@ class LoopTests(unittest.TestCase):
         self.assertTrue(termux_loop.routes(self.ctx()))
         self.assertFalse(termux_loop.routes(self.ctx(tempfile.mkdtemp())))        # Termux cannot see it
 
+    def test_busybox_auto_routes_local_file_work_without_termux(self):
+        from . import termux_loop
+        self.on_phone()
+        with tempfile.TemporaryDirectory() as folder:
+            binary = os.path.join(folder, "libbusybox.so")
+            with open(binary, "wb") as out:
+                out.write(b"mock BusyBox executable")
+            with mock.patch.dict(os.environ, {"NEWAL_BUSYBOX": binary, "NEWAL_BUSYBOX_AUTO": "1"}), \
+                 mock.patch.object(termux_loop.os, "access", return_value=True):
+                # These commands need no Termux and the user does not write 'busybox'.
+                for command in ("grep -n hello src/app.py", "find . -name '*.py'",
+                                "ls -la", "awk '{print $1}' input.txt",
+                                "grep foo file.txt | head -5", "mkdir build"):
+                    with self.subTest(command=command):
+                        self.assertTrue(termux_loop.local_busybox_command(command))
+                        self.assertFalse(termux_loop.routes(self.ctx(), command))
+                # Existing Termux build flow must never be hijacked or blindly retried.
+                for command in ("npm test", "node server.js", "gh repo clone owner/repo",
+                                "grep foo file | npm test", "echo x; rm -rf /",
+                                "echo $(node --version)", "grep foo\nnode app.js"):
+                    with self.subTest(command=command):
+                        self.assertFalse(termux_loop.local_busybox_command(command))
+                        self.assertTrue(termux_loop.routes(self.ctx(), command))
+                with mock.patch.object(tools, "run_command", return_value=(0, "found\\n")):
+                    output, meta = tools.REGISTRY["bash"].fn(self.ctx(), command="grep hello file")
+                self.assertEqual(meta["runtime"], "android-busybox")
+                self.assertEqual(meta["exit"], 0)
+                self.assertIn("found", output)
+
+    def test_busybox_auto_off_or_missing_binary_preserves_termux_routing(self):
+        from . import termux_loop
+        self.on_phone()
+        with tempfile.TemporaryDirectory() as folder:
+            binary = os.path.join(folder, "busybox")
+            with mock.patch.dict(os.environ, {"NEWAL_BUSYBOX": binary, "NEWAL_BUSYBOX_AUTO": "1"}):
+                self.assertFalse(termux_loop.local_busybox_command("grep word file"))
+                self.assertTrue(termux_loop.routes(self.ctx(), "grep word file"))
+            with open(binary, "wb") as out:
+                out.write(b"mock")
+            with mock.patch.dict(os.environ, {"NEWAL_BUSYBOX": binary, "NEWAL_BUSYBOX_AUTO": "0"}):
+                self.assertFalse(termux_loop.local_busybox_command("grep word file"))
+                self.assertTrue(termux_loop.routes(self.ctx(), "grep word file"))
+
     def test_a_local_page_opens_in_chrome_and_else_in_the_default_browser(self):
         from . import phone, termux_loop
         calls = []

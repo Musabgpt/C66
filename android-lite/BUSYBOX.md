@@ -14,7 +14,15 @@ MusabAI packages [BusyBox](https://busybox.net/) as a separate executable, not a
 
 The Android NDK compiles separate 64-bit PIE builds for arm64-v8a and x86_64. Each binary is packaged as lib/<abi>/libbusybox.so to use the application's extracted native-library directory. Android prohibits executing downloaded binaries out of writable app data on recent releases.
 
-Setup creates a private bin/busybox symlink that points to the extracted binary. The existing agent PATH includes the private bin and exports NEWAL_BUSYBOX. The system shell, permissions and cancellation remain unchanged. BusyBox is not a Linux kernel and does not grant any additional Android privileges.
+Setup installs private symlinks for a curated set of applets (such as ls, grep, find, awk, sed, cat, cp, mv, rm, mkdir, xargs and others). The existing agent PATH begins with this private bin directory, so **normal shell commands automatically run through BusyBox** without the user or model adding a busybox prefix. No separate Termux installation is necessary for these tools.
+
+The normal Android /system/bin/sh, Python, git and other runtimes are never overwritten. Installation is idempotent on every app start and preserves pre-existing regular files. NEWAL_BUSYBOX and NEWAL_BUSYBOX_AUTO are set only when the bundled native executable is available.
+
+When Termux is connected and the project is visible to both apps, MusabAI executes simple BusyBox commands locally and routes commands requiring node, npm, gh, compilers or complex scripts to Termux; it never automatically replays a command after failure. If the Android app lacks permission to read the project, existing Termux routing is preserved. The existing permission mode, cancellation and timeouts remain active; BusyBox does not grant root or new Android privileges.
+
+## Automatic-use acceptance test
+
+In a fresh MusabAI chat, ask normally: "Create a folder and three test files, search them for a keyword, and show me the results." The agent should use its ordinary file/bash tools without requesting a BusyBox prefix. In bash metadata, a simple command run locally reports runtime android-busybox. When a connected Termux is required for node/npm/gh, the existing termux runtime remains available.
 
 ## On-device smoke checks
 

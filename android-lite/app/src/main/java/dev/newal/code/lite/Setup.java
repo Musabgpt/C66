@@ -86,6 +86,7 @@ final class Setup {
                 && new File(app, "newal_code/server.py").isFile()
                 && new File(python, "lib/python3.14/encodings/__init__.py").isFile()
                 && new File(python, "cacert.pem").isFile()) {
+            BusyBoxApplets.install(bin, new File(libDir, "libbusybox.so"));
             return;
         }
         delete(python);
@@ -107,18 +108,9 @@ final class Setup {
                 // no links on this storage: the agent still has sh and the tools
             }
         }
-        // Android permits executing extracted JNI libraries but not binaries copied into writable app data.
-        // Keep the applet-dispatching symlink in the private bin directory; its target stays in nativeLibraryDir.
-        File busyboxLibrary = new File(libDir, "libbusybox.so");
-        if (busyboxLibrary.isFile()) {
-            File busyboxLink = new File(bin, "busybox");
-            busyboxLink.delete();
-            try {
-                Os.symlink(busyboxLibrary.getAbsolutePath(), busyboxLink.getAbsolutePath());
-            } catch (Exception e) {
-                throw new IOException("Cannot link bundled BusyBox in private bin directory", e);
-            }
-        }
+        // Make the curated BusyBox applets first on the agent's PATH automatically.
+        // /system/bin/sh remains the shell; Python, git and permissions are unchanged.
+        BusyBoxApplets.install(bin, new File(libDir, "libbusybox.so"));
         File sample = new File(home, "projects/hello");
         if (!sample.exists() && sample.mkdirs()) {
             write(new File(sample, "README.md"), "# hello\n\nA first project for NewAl Code Lite. Ask it to write "
@@ -156,9 +148,10 @@ final class Setup {
         env.put("PYTHONUNBUFFERED", "1");
         env.put("NEWAL_CODE_HOME", new File(home, ".newal-code").getPath());
         env.put("NEWAL_LLAMA_SERVER", llamaServer());
-        File busyboxLink = new File(bin, "busybox");
-        if (busyboxLink.isFile()) {
-            env.put("NEWAL_BUSYBOX", busyboxLink.getAbsolutePath());
+        File busyboxLibrary = new File(libDir, "libbusybox.so");
+        if (BusyBoxApplets.ready(bin, busyboxLibrary)) {
+            env.put("NEWAL_BUSYBOX", new File(bin, "busybox").getAbsolutePath());
+            env.put("NEWAL_BUSYBOX_AUTO", "1");
         }
         env.put("LD_LIBRARY_PATH", libDir);
         env.put("SSL_CERT_FILE", new File(python, "cacert.pem").getPath());
