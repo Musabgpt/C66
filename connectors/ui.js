@@ -298,6 +298,24 @@
       "تستخدم اتصالات الحسابات وMCP مدير الحالة الحي نفسه. لا تُعرض الإعدادات المحفوظة أبدًا على أنها عملية تعمل."
     ), "muted"));
     card.lastElementChild.id = "connector-intro";
+    if (window.NewAlPhone && NewAlPhone.setupAll) {
+      const setupTitle = element("h3", tr("Phone assistant", "المساعد العائم والصوتي"));
+      card.append(setupTitle);
+      const setupActions = element("div", "", "form-row");
+      const all = element("button", tr("Set up everything", "تهيئة كل شيء"), "btn primary");
+      all.onclick = () => { close(); NewAlPhone.setupAll(); };
+      const nvidia = element("button", tr("NVIDIA API key", "مفتاح NVIDIA"), "btn");
+      nvidia.onclick = () => NewAlPhone.configureNvidia();
+      const bubble = element("button", tr("Start floating voice assistant", "شغّل الفقاعة والصوت"), "btn");
+      bubble.onclick = () => NewAlPhone.floatingAssistant(true, true);
+      const stop = element("button", tr("Stop floating assistant", "إيقاف الفقاعة"), "btn");
+      stop.onclick = () => NewAlPhone.floatingAssistant(false, false);
+      setupActions.append(all, nvidia, bubble, stop);
+      card.append(setupActions);
+      const hint = element("p", tr("Android approvals remain manual. NVIDIA joins your existing models and keeps its key on this phone.",
+        "موافقات أندرويد تتم يدوياً. NVIDIA تظهر بجانب النماذج الحالية ومفتاحها محفوظ على هاتفك."), "muted");
+      card.append(hint);
+    }
     const message = element("p"); message.id = "connector-message"; message.setAttribute("role", "status"); card.append(message);
     const list = element("div"); list.id = "connector-list"; card.append(list); dialog.append(card); document.body.append(dialog);
     card.append(element("h3", tr("Real extensions", "الإضافات الحقيقية")));

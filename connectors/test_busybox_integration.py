@@ -51,6 +51,32 @@ class BusyBoxIntegration(unittest.TestCase):
         self.assertNotIn('"toybox",', code)  # System Toybox stays on /system/bin.
         self.assertNotIn('"sh",', code)      # Never replace Android's /system/bin/sh.
 
+    def test_one_tap_overlay_microphone_and_secure_nvidia_integration(self):
+        manifest = (ROOT / "android-lite/app/src/main/AndroidManifest.xml").read_text()
+        main = (ROOT / "android-lite/app/src/main/java/dev/newal/code/lite")
+        bridge = (main / "WebBridge.java").read_text()
+        wizard = (main / "FirstRunSetup.java").read_text()
+        overlay = (main / "FloatingAssistantService.java").read_text()
+        self.assertIn('android.permission.SYSTEM_ALERT_WINDOW', manifest)
+        self.assertIn('android.permission.RECORD_AUDIO', manifest)
+        self.assertIn('android.permission.FOREGROUND_SERVICE_MICROPHONE', manifest)
+        self.assertIn('android:foregroundServiceType="microphone|specialUse"', manifest)
+        self.assertIn('Settings.canDrawOverlays', wizard)
+        self.assertIn('A11y.enabled', wizard)
+        self.assertIn('requestPermissions', wizard)
+        self.assertIn('Termux.allowed', wizard)
+        self.assertIn('ProviderSecrets.handle', wizard)
+        self.assertIn('window.openMusabConnectors', (main / "MainActivity.java").read_text())
+        self.assertIn('FirstRunSetup.startOverlay', bridge)
+        self.assertIn('SpeechRecognizer.createSpeechRecognizer', overlay)
+        self.assertIn('ui.postDelayed(restartSpeech', overlay)
+        self.assertIn('X-NewAl-Key', overlay)
+        self.assertIn('/api/sessions/', overlay)
+        self.assertIn('FloatingAssistantService.ACTION_STOP', bridge)
+        self.assertIn('nvidia_models.models()', (ROOT / "connectors/apply.py").read_text())
+        self.assertNotIn('nvapi-', (ROOT / "connectors/nvidia_models.py").read_text())
+        self.assertNotIn('nvapi-', overlay)
+
     def test_actual_android_elf_binaries(self):
         for abi, machine in EXPECTED.items():
             with self.subTest(abi=abi):
