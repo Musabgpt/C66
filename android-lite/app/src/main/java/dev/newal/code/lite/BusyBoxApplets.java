@@ -29,7 +29,7 @@ final class BusyBoxApplets {
         "cksum", "base64", "base32", "gzip", "gunzip", "zcat", "tar",
         "bzip2", "bunzip2", "bzcat", "unzip", "xz", "unxz", "xzcat",
         "ps", "top", "free", "uptime", "pidof", "kill", "killall",
-        "nice", "nohup", "timeout", "wget", "httpd", "nslookup", "ping",
+        "nice", "nohup", "timeout", "wget", "httpd", "ping",
         "netstat", "nc", "crond", "crontab", "cal", "clear", "less",
         "more", "vi", "expr", "od", "hexdump", "strings", "split",
         "mkfifo", "mktemp"
