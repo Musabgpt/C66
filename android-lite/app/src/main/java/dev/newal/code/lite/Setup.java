@@ -107,6 +107,18 @@ final class Setup {
                 // no links on this storage: the agent still has sh and the tools
             }
         }
+        // Android permits executing extracted JNI libraries but not binaries copied into writable app data.
+        // Keep the applet-dispatching symlink in the private bin directory; its target stays in nativeLibraryDir.
+        File busyboxLibrary = new File(libDir, "libbusybox.so");
+        if (busyboxLibrary.isFile()) {
+            File busyboxLink = new File(bin, "busybox");
+            busyboxLink.delete();
+            try {
+                Os.symlink(busyboxLibrary.getAbsolutePath(), busyboxLink.getAbsolutePath());
+            } catch (Exception e) {
+                throw new IOException("Cannot link bundled BusyBox in private bin directory", e);
+            }
+        }
         File sample = new File(home, "projects/hello");
         if (!sample.exists() && sample.mkdirs()) {
             write(new File(sample, "README.md"), "# hello\n\nA first project for NewAl Code Lite. Ask it to write "
@@ -144,6 +156,10 @@ final class Setup {
         env.put("PYTHONUNBUFFERED", "1");
         env.put("NEWAL_CODE_HOME", new File(home, ".newal-code").getPath());
         env.put("NEWAL_LLAMA_SERVER", llamaServer());
+        File busyboxLink = new File(bin, "busybox");
+        if (busyboxLink.isFile()) {
+            env.put("NEWAL_BUSYBOX", busyboxLink.getAbsolutePath());
+        }
         env.put("LD_LIBRARY_PATH", libDir);
         env.put("SSL_CERT_FILE", new File(python, "cacert.pem").getPath());
         env.put("TMPDIR", ctx.getCacheDir().getPath());
