@@ -58,7 +58,7 @@ def in_project(ctx, command, runtime=None):
 # Safe commands provided by the packaged Android BusyBox (plus shell built-ins).
 # Preserve Termux for npm, node, gh, SDKs, git, Python environments and mixed/complex scripts.
 LOCAL_APPLETS = frozenset((
-    "busybox", "awk", "basename", "cat", "cp", "cut", "dirname", "env",
+    "busybox", "toybox", "awk", "basename", "cat", "cp", "cut", "dirname", "env",
     "find", "grep", "head", "ls", "mkdir", "mv", "readlink", "realpath",
     "rm", "sed", "sleep", "sort", "tail", "touch", "tr", "uname", "wc",
     "xargs", "echo", "printf", "pwd", "true", "false", "test",
