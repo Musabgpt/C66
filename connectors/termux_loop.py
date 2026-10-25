@@ -219,7 +219,7 @@ def wrap_bash():
 
 
 def wrap_phone():
-    """A local server's page opens in Chrome (the default browser when Chrome is missing)."""
+    """Open all ordinary web links in installed Chrome, with a browser fallback if absent."""
     t = tools.REGISTRY.get("phone")
     if t is None or getattr(t.fn, "_chrome", False):
         return
@@ -227,7 +227,7 @@ def wrap_phone():
 
     def phone(ctx, action, **args):
         url = str(args.get("url") or "")
-        if action == "open_url" and LOCAL.match(url) and not args.get("package"):
+        if action == "open_url" and url.lower().startswith(("https://", "http://")) and not args.get("package"):
             try:
                 return inner(ctx, action, **dict(args, package=CHROME))
             except tools.ToolError as e:
