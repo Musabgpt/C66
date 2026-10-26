@@ -351,6 +351,9 @@ public final class FloatingAssistantService extends Service implements Recogniti
     @Override public void onEvent(int eventType, Bundle params) {}
     @Override public void onError(int error) {
         if (!listening || speaking) return;
+        // The on-device recognizer may not have Syrian Arabic installed.
+        if (error != SpeechRecognizer.ERROR_NO_MATCH && error != SpeechRecognizer.ERROR_SPEECH_TIMEOUT)
+            postNotice("🎙 جاري إعادة الاتصال بالتعرف الصوتي (رمز " + error + ")");
         // No match and speech timeout are normal silence, not permanent errors.
         if (error != SpeechRecognizer.ERROR_NO_MATCH && error != SpeechRecognizer.ERROR_SPEECH_TIMEOUT)
             speechFailures++;
@@ -365,6 +368,7 @@ public final class FloatingAssistantService extends Service implements Recogniti
         ArrayList<String> words = data.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
         String transcript = words == null || words.isEmpty() ? "" : words.get(0).trim();
         if (!transcript.isEmpty()) {
+            postNotice("🎙 سمعت: " + transcript);
             long now = SystemClock.elapsedRealtime();
             if (!transcript.equals(lastSpeech) || now - lastSpeechAt > 5000) {
                 lastSpeech = transcript; lastSpeechAt = now;
@@ -426,9 +430,46 @@ public final class FloatingAssistantService extends Service implements Recogniti
         });
     }
 
+    /** Remove the focusable panel so Accessibility sees WhatsApp/Chrome, not our overlay. */
+    private void collapsePanel() {
+        if (panel != null) {
+            try { wm.removeView(panel); } catch (RuntimeException ignored) {}
+            panel = null; panelParams = null; input = null; micButton = null; status = null;
+        }
+    }
+
+    private boolean needsScreenTools(String words) {
+        String text = words == null ? "" : words.toLowerCase(java.util.Locale.ROOT);
+        return text.contains("واتساب") || text.contains("whatsapp") ||
+                text.contains("اعب") || text.contains("عبّي") ||
+                text.contains("اضغط") || text.contains("انقر") ||
+                text.contains("شاشة") || text.contains("كروم") ||
+                text.contains("chrome") || text.contains("تيليجرام");
+    }
+
     private void sendCommand(String message) {
         if (message.length() > MAX_COMMAND) { postNotice("الطلب طويل؛ الحد 4000 حرف."); return; }
+        final String shortcut = QuickPhoneActions.packageToOpen(message);
+        if (shortcut != null) {
+            collapsePanel();
+            try {
+                QuickPhoneActions.open(this, shortcut);
+                postNotice("✓ فتحت التطبيق المطلوب. أقدر أكمل خطوات داخله إذا طلبت مني.");
+                speakAnswer("فتحت التطبيق.");
+            } catch (Exception error) {
+                postNotice("تعذّر فتح التطبيق: " + error.getMessage());
+            }
+            return;
+        }
         if (busy) { postNotice("MusabAI عم ينفذ مهمة سابقة؛ جرّب بعد ما يخلص."); return; }
+        if (needsScreenTools(message) && PhoneControlService.on == null) {
+            postNotice("فعّل إمكانية الوصول NewAl Code من إعدادات الهاتف، ثم جرّب مرة ثانية.");
+            speakAnswer("يلزم تفعيل إمكانية الوصول للتحكم بالشاشة.");
+            return;
+        }
+        // Always collapse before executing a phone task. Otherwise the focused
+        // overlay is the foreground window and screen() cannot see WhatsApp.
+        collapsePanel();
         busy = true;
         postNotice("⏳ عم نفّذ: " + message);
         worker.execute(() -> {
