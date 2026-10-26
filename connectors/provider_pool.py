@@ -570,7 +570,17 @@ def candidates(current, required_capabilities=None, include_cooling=False):
 class NvidiaNimCompat(providers.OpenAICompat):
     """NIM is OpenAI chat compatible but does not universally accept reasoning_effort."""
     def body(self, model, messages, tools, max_tokens, temperature, reasoning, extra):
-        return super().body(model, messages, tools, max_tokens, temperature, "off", extra)
+        # Nemotron 3 Ultra explicitly documents none/medium/high reasoning_effort.
+        # Other NIMs and Kilo's free router do not share that contract.
+        body = super().body(model, messages, tools, max_tokens, temperature, "off", extra)
+        if str(model).startswith("nvidia/nemotron-3-ultra-"):
+            if reasoning in ("off", "none", False):
+                body["reasoning_effort"] = "none"
+            elif reasoning in ("low", "medium"):
+                body["reasoning_effort"] = "medium"
+            elif reasoning == "high":
+                body["reasoning_effort"] = "high"
+        return body
 
 
 def provider(spec):
