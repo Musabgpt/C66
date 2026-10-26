@@ -122,6 +122,8 @@ def runtime_context(agent):
     state = {'permission_mode': agent.session.mode,
              'project_directory': agent.session.root,
              'internal_terminal': 'bash' in names,
+             'phone_control': 'phone' in names,
+             'phone_batch_actions': 'phone_sequence' in names,
              'busybox_auto': busybox_ready and os.environ.get("NEWAL_BUSYBOX_AUTO") == "1",
              'termux': 'termux_exec' in names,
              'connected_service_tools': providers,
