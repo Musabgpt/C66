@@ -16,7 +16,7 @@ class FreeOverlayRegressionTests(unittest.TestCase):
         spec = nvidia_models._spec("meta/llama-3.1-8b-instruct")
         self.assertNotIn("reasoning", spec["capabilities"])
 
-    def test_nvidia_request_keeps_tools_but_drops_unsupported_reasoning_effort(self):
+    def test_nemotron_uses_documented_reasoning_effort_and_tools(self):
         spec = nvidia_models._spec("nvidia/nemotron-3-ultra-550b-a55b")
         backend = provider_pool.provider(dict(spec, api_key="private"))
         payload = backend.body(
@@ -26,8 +26,15 @@ class FreeOverlayRegressionTests(unittest.TestCase):
             64, None, "medium", None)
         self.assertEqual(payload["model"], spec["model"])
         self.assertIn("tools", payload)
-        self.assertNotIn("reasoning_effort", payload)
+        self.assertEqual(payload["reasoning_effort"], "medium")
         self.assertNotIn("private", str(payload))
+
+    def test_other_nvidia_models_do_not_receive_universal_reasoning_effort(self):
+        spec = nvidia_models._spec("meta/llama-3.1-8b-instruct")
+        client = provider_pool.provider(dict(spec, api_key="private"))
+        payload = client.body(spec["model"], [{"role":"user","content":"Hi"}],
+                              [], 60, None, "medium", None)
+        self.assertNotIn("reasoning_effort", payload)
 
     def test_missing_nvidia_key_is_actionable_not_capability_confusion(self):
         spec = nvidia_models._spec("nvidia/nemotron-3-ultra-550b-a55b")
