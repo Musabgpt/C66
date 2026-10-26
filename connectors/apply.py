@@ -545,3 +545,5 @@ if __name__ == "__main__":
             '                    "api_key_env": key, "patch": prov == "openai" or name.startswith(("gpt-", "o3", "o4", "codex"))}\n',
             '                    "api_key_env": key, "secret_id": "nvidia" if prov == "nvidia" else "",\n'
             '                    "patch": prov == "openai" or name.startswith(("gpt-", "o3", "o4", "codex"))}\n')
+    import apply_free_model_ui
+    apply_free_model_ui.apply(target, replace)
