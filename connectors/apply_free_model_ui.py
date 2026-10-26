@@ -17,6 +17,15 @@ def apply(target, replace):
             '    for s in nvidia_models.models():\n        out.setdefault(s["id"], s)\n'
             '    from . import provider_pool\n'
             '    for s in provider_pool.FREE_POOL:\n        out.setdefault(s["id"], dict(s))\n'
+            '    # Official Kilo Gateway Auto Free offers anonymous, rate-limited access.\n'
+            '    # The user should not send confidential data through public free routing.\n'
+            '    out.setdefault("kilo-public/auto-free", {\n'
+            '        "id": "kilo-public/auto-free", "name": "Auto Free · No key (public)",\n'
+            '        "provider": "openai", "base_url": "https://ai-gateway.kilo.ai/api/v1",\n'
+            '        "model": "kilo-auto/free", "free": True,\n'
+            '        "capabilities": ["text", "tools", "streaming", "reasoning"],\n'
+            '        "about": "Public free tier; prompts may be logged by providers",\n'
+            '    })\n'
             '    return out\n')
 
     # The selected NVIDIA and other free providers must use the same protected
@@ -35,10 +44,11 @@ def apply(target, replace):
     replace(model,
             '    return Client(spec, providers.OpenAICompat(base, _key(spec), spec.get("headers")),\n'
             '                  spec.get("model") or spec["id"])\n',
-            '    if base.rstrip("/") == "https://integrate.api.nvidia.com/v1":\n'
+            '    if base.rstrip("/") in ("https://integrate.api.nvidia.com/v1",\n'
+            '                             "https://ai-gateway.kilo.ai/api/v1"):\n'
             '        from . import provider_pool\n'
             '        credential = _key(spec)\n'
-            '        if not credential:\n'
+            '        if base.rstrip("/") == "https://integrate.api.nvidia.com/v1" and not credential:\n'
             '            raise ValueError("NVIDIA not connected: enter a new API key under MusabAI Connections → NVIDIA")\n'
             '        client = provider_pool.provider(dict(spec, api_key=credential))\n'
             '        return Client(spec, client, spec.get("model") or spec["id"])\n'
@@ -47,6 +57,12 @@ def apply(target, replace):
             '        raise ValueError("Connect the selected free provider in MusabAI Connections first")\n'
             '    return Client(spec, providers.OpenAICompat(base, credential, spec.get("headers")),\n'
             '                  spec.get("model") or spec["id"])\n')
+
+    replace(model,
+            '    if os.environ.get("ANTHROPIC_API_KEY"):\n',
+            '    if os.environ.get("NEWAL_PHONE_URL") and "kilo-public/auto-free" in reg:\n'
+            '        return reg["kilo-public/auto-free"]\n'
+            '    if os.environ.get("ANTHROPIC_API_KEY"):\n')
 
     replace(model,
             '    if os.environ.get("ANTHROPIC_API_KEY"):\n',
