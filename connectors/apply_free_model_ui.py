@@ -12,6 +12,9 @@ def apply(target, replace):
     service = pkg / "service.py"
     ui = pkg / "ui/app.js"
 
+    import shutil
+    shutil.copyfile(target / "connectors/free_model_fix_tests.py", pkg / "free_model_fix_tests.py")
+
     replace(model,
             '    for s in nvidia_models.models():\n        out.setdefault(s["id"], s)\n    return out\n',
             '    for s in nvidia_models.models():\n        out.setdefault(s["id"], s)\n'
