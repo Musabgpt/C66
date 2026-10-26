@@ -140,6 +140,10 @@ def apply(target, replace):
             '    body.querySelectorAll("[data-use]").forEach(b => b.onclick = () => { setOpt("model", b.dataset.use); closeModal(); });\n',
             '    body.querySelectorAll("[data-use]").forEach(b => b.onclick = () => { setOpt("model", b.dataset.use); closeModal(); });\n'
             '    body.querySelectorAll("[data-free-connect]").forEach(b => b.onclick = () => {\n'
-            '      if (window.NewAlPhone && NewAlPhone.configureNvidia) NewAlPhone.configureNvidia();\n'
-            '      else toast("Configure this free provider using the Connections panel");\n'
+            '      const target = other.find(m => b.parentNode && b.parentNode.textContent.includes(m.id));\n'
+            '      closeModal();\n'
+            '      if (target && target.id.startsWith("nvidia/") && window.NewAlPhone && NewAlPhone.configureNvidia)\n'
+            '        NewAlPhone.configureNvidia();\n'
+            '      else if (window.openMusabConnectors) window.openMusabConnectors();\n'
+            '      else toast("Configure this free provider in MusabAI Connections");\n'
             '    });\n')
