@@ -41,6 +41,7 @@ public final class FloatingAssistantService extends Service implements Recogniti
     private View bubble;
     private LinearLayout panel;
     private WindowManager.LayoutParams bubbleParams;
+    private WindowManager.LayoutParams panelParams;
     private TextView status;
     private TextView micButton;
     private TextView bubbleText;
@@ -119,7 +120,9 @@ public final class FloatingAssistantService extends Service implements Recogniti
 
     private GradientDrawable bg(int color, float round) {
         GradientDrawable d = new GradientDrawable();
-        d.setColor(color); d.setCornerRadius(dp(round)); return d;
+        d.setColor(color); d.setCornerRadius(dp(round));
+        if (round == 22) d.setStroke(dp(1), 0xff385768);
+        return d;
     }
     private int dp(float value) { return (int) (getResources().getDisplayMetrics().density * value + .5f); }
     private TextView label(String text, int size, int color) {
@@ -130,20 +133,24 @@ public final class FloatingAssistantService extends Service implements Recogniti
     }
 
     private void showBubble() {
-        bubbleText = label("✦", 29, Color.WHITE);
+        bubbleText = label("✦", 25, Color.WHITE);
         bubbleText.setGravity(Gravity.CENTER);
         bubbleText.setBackground(bg(0xff087e70, 80));
         bubbleText.setElevation(dp(9));
         bubble = bubbleText;
-        bubbleParams = new WindowManager.LayoutParams(dp(60), dp(60),
+        bubbleParams = new WindowManager.LayoutParams(dp(52), dp(52),
                 Build.VERSION.SDK_INT >= 26 ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY :
                     WindowManager.LayoutParams.TYPE_PHONE,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
                     | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
                 PixelFormat.TRANSLUCENT);
         bubbleParams.gravity = Gravity.TOP | Gravity.LEFT;
-        bubbleParams.x = getResources().getDisplayMetrics().widthPixels - dp(74);
-        bubbleParams.y = dp(230);
+        bubbleParams.x = getSharedPreferences("musabai-floating", MODE_PRIVATE)
+                .getInt("bubble_x", getResources().getDisplayMetrics().widthPixels - dp(60));
+        bubbleParams.y = getSharedPreferences("musabai-floating", MODE_PRIVATE)
+                .getInt("bubble_y", dp(155));
+        bubbleParams.x = Math.max(0, Math.min(getResources().getDisplayMetrics().widthPixels - dp(52), bubbleParams.x));
+        bubbleParams.y = Math.max(dp(25), Math.min(getResources().getDisplayMetrics().heightPixels - dp(110), bubbleParams.y));
         try { wm.addView(bubble, bubbleParams); }
         catch (RuntimeException e) { postNotice("تعذّر إظهار فقاعة MusabAI: " + e.getClass().getSimpleName()); return; }
         bubble.setOnTouchListener(new View.OnTouchListener() {
@@ -156,13 +163,30 @@ public final class FloatingAssistantService extends Service implements Recogniti
                 if (event.getActionMasked() == MotionEvent.ACTION_MOVE) {
                     int dx = Math.round(event.getRawX() - tx), dy = Math.round(event.getRawY() - ty);
                     if (Math.abs(dx) + Math.abs(dy) > dp(10)) dragged = true;
-                    bubbleParams.x = Math.max(0, Math.min(getResources().getDisplayMetrics().widthPixels-dp(60), x0+dx));
+                    bubbleParams.x = Math.max(0, Math.min(getResources().getDisplayMetrics().widthPixels-dp(52), x0+dx));
                     bubbleParams.y = Math.max(dp(30), y0+dy);
                     try { wm.updateViewLayout(bubble, bubbleParams); } catch (RuntimeException ignored) {}
                     return true;
                 }
                 if (event.getActionMasked() == MotionEvent.ACTION_UP) {
                     if (!dragged) togglePanel();
+                    else {
+                        getSharedPreferences("musabai-floating", MODE_PRIVATE).edit()
+                                .putInt("bubble_x", bubbleParams.x)
+                                .putInt("bubble_y", bubbleParams.y).apply();
+                        // Snap to nearest edge, keeping the whole bubble in view.
+                        final int start = bubbleParams.x;
+                        final int width = getResources().getDisplayMetrics().widthPixels - dp(52);
+                        final int end = start < width / 2 ? dp(5) : width - dp(5);
+                        android.animation.ValueAnimator snap = android.animation.ValueAnimator.ofInt(start, end);
+                        snap.setDuration(160);
+                        snap.addUpdateListener(v -> {
+                            bubbleParams.x = (int) v.getAnimatedValue();
+                            if (bubble != null) try { wm.updateViewLayout(bubble, bubbleParams); }
+                            catch (RuntimeException ignored) {}
+                        });
+                        snap.start();
+                    }
                     return true;
                 }
                 return true;
@@ -172,58 +196,82 @@ public final class FloatingAssistantService extends Service implements Recogniti
 
     private void togglePanel() {
         if (panel != null) {
-            wm.removeView(panel); panel = null; return;
+            wm.removeView(panel); panel = null; panelParams = null; status = null; micButton = null; input = null; return;
         }
         panel = new LinearLayout(this);
         panel.setOrientation(LinearLayout.VERTICAL);
-        panel.setPadding(dp(10), dp(12), dp(10), dp(10));
+        panel.setPadding(dp(10), dp(9), dp(10), dp(8));
         panel.setBackground(bg(0xff14202c, 22));
         panel.setElevation(dp(18));
 
-        TextView title = label("✦ MusabAI     •     مساعدك العائم", 17, Color.WHITE);
+        TextView title = label("✦  MusabAI   •   مساعدك العائم", 15, Color.WHITE);
+        title.setBackground(bg(0xff1c3441, 14));
         panel.addView(title);
+        title.setOnTouchListener(new View.OnTouchListener() {
+            float y0; int top0;
+            @Override public boolean onTouch(View v, MotionEvent event) {
+                if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
+                    y0 = event.getRawY(); top0 = panelParams == null ? 0 : panelParams.y;
+                    return true;
+                }
+                if (event.getActionMasked() == MotionEvent.ACTION_MOVE && panelParams != null) {
+                    panelParams.y = Math.max(dp(28), Math.min(
+                            getResources().getDisplayMetrics().heightPixels - dp(270),
+                            top0 + Math.round(event.getRawY() - y0)));
+                    try { wm.updateViewLayout(panel, panelParams); } catch (RuntimeException ignored) {}
+                    return true;
+                }
+                return event.getActionMasked() == MotionEvent.ACTION_UP;
+            }
+        });
         status = label(lastStatus, 13, 0xffb6d5e1);
-        status.setMaxLines(5); panel.addView(status);
+        status.setMaxLines(4);
+        status.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        status.setOnClickListener(v -> {
+            Intent open = new Intent(this, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(open);
+        });
+        panel.addView(status);
         input = new EditText(this);
         input.setTextColor(Color.WHITE); input.setHintTextColor(0xff9daeb5);
         input.setTextSize(15); input.setSingleLine(false); input.setMaxLines(4);
         input.setHint("شو بدك أعمل؟");
         input.setBackground(bg(0xff2a3b48, 12)); input.setPadding(dp(12), dp(7), dp(12), dp(7));
-        LinearLayout.LayoutParams editParams = new LinearLayout.LayoutParams(-1, dp(76));
+        LinearLayout.LayoutParams editParams = new LinearLayout.LayoutParams(-1, dp(60));
         editParams.setMargins(0, dp(5), 0, dp(8)); panel.addView(input, editParams);
 
         LinearLayout actions = new LinearLayout(this);
         actions.setOrientation(LinearLayout.HORIZONTAL);
-        TextView send = label("إرسال ↗", 15, Color.WHITE);
+        TextView send = label("إرسال ↗", 14, Color.WHITE);
         send.setGravity(Gravity.CENTER); send.setBackground(bg(0xff087e70, 12));
-        actions.addView(send, new LinearLayout.LayoutParams(0, dp(45), 1));
+        actions.addView(send, new LinearLayout.LayoutParams(0, dp(42), 1));
         send.setOnClickListener(v -> {
             String text = input.getText().toString().trim();
             if (!text.isEmpty()) { input.setText(""); sendCommand(text); }
         });
         micButton = label("", 14, Color.WHITE);
         micButton.setGravity(Gravity.CENTER);
-        LinearLayout.LayoutParams mp = new LinearLayout.LayoutParams(0, dp(45), 1);
+        LinearLayout.LayoutParams mp = new LinearLayout.LayoutParams(0, dp(42), 1);
         mp.setMargins(dp(8), 0, 0, 0); actions.addView(micButton, mp);
         micButton.setBackground(bg(0xff435262, 12));
         micButton.setOnClickListener(v -> setListening(!listening));
         updateMic();
         panel.addView(actions);
 
-        TextView close = label("تصغير الفقاعة     •     إيقاف: من الإشعار", 12, 0xffa1b3be);
+        TextView close = label("ـ  تصغير     ·     ↗ لفتح المحادثة كاملة اضغط النتيجة", 11, 0xffa1b3be);
         close.setGravity(Gravity.CENTER);
         close.setOnClickListener(v -> togglePanel()); panel.addView(close);
-        int width = Math.min(getResources().getDisplayMetrics().widthPixels - dp(20), dp(350));
-        WindowManager.LayoutParams params = new WindowManager.LayoutParams(width, -2,
+        int width = Math.min(getResources().getDisplayMetrics().widthPixels - dp(38), dp(302));
+        panelParams = new WindowManager.LayoutParams(width, -2,
                 Build.VERSION.SDK_INT >= 26 ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY :
                     WindowManager.LayoutParams.TYPE_PHONE,
                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
                     | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
                 PixelFormat.TRANSLUCENT);
-        params.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
-        params.y = Math.max(dp(65), Math.min(getResources().getDisplayMetrics().heightPixels - dp(390), bubbleParams.y + dp(65)));
-        params.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE;
-        try { wm.addView(panel, params); }
+        panelParams.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
+        panelParams.y = Math.max(dp(45), Math.min(getResources().getDisplayMetrics().heightPixels - dp(340), bubbleParams.y + dp(55)));
+        panelParams.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE;
+        try { wm.addView(panel, panelParams); }
         catch (RuntimeException e) { panel = null; postNotice("تعذّر فتح نافذة المحادثة"); }
     }
 
