@@ -581,7 +581,8 @@ def provider(spec):
             spec.get("api_key", ""),
             spec.get("base_url") or free_provider_adapters.AIHORDE_BASE,
         )
-    backend = NvidiaNimCompat if _base(spec) == "https://integrate.api.nvidia.com/v1" else providers.OpenAICompat
+    backend = NvidiaNimCompat if _base(spec) in ("https://integrate.api.nvidia.com/v1",
+                                                    "https://ai-gateway.kilo.ai/api/v1") else providers.OpenAICompat
     return backend(spec["base_url"], spec.get("api_key", ""), spec.get("headers"))
 
 
