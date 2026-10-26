@@ -567,6 +567,12 @@ def candidates(current, required_capabilities=None, include_cooling=False):
     return out
 
 
+class NvidiaNimCompat(providers.OpenAICompat):
+    """NIM is OpenAI chat compatible but does not universally accept reasoning_effort."""
+    def body(self, model, messages, tools, max_tokens, temperature, reasoning, extra):
+        return super().body(model, messages, tools, max_tokens, temperature, "off", extra)
+
+
 def provider(spec):
     if spec.get("provider") == "anthropic":
         return providers.Anthropic(spec.get("api_key", ""), spec.get("base_url") or "https://api.anthropic.com")
@@ -575,7 +581,8 @@ def provider(spec):
             spec.get("api_key", ""),
             spec.get("base_url") or free_provider_adapters.AIHORDE_BASE,
         )
-    return providers.OpenAICompat(spec["base_url"], spec.get("api_key", ""), spec.get("headers"))
+    backend = NvidiaNimCompat if _base(spec) == "https://integrate.api.nvidia.com/v1" else providers.OpenAICompat
+    return backend(spec["base_url"], spec.get("api_key", ""), spec.get("headers"))
 
 
 class _ObservedEvents:
@@ -814,7 +821,13 @@ def chat(client, messages, tools=None, required_capabilities=None, excluded_prov
     errors = []
     incompatible = []
 
-    if not _supports(current_spec, required, legacy_current=True):
+    # A credentialed endpoint is not usable merely because its model appears in
+    # the catalog. Skip immediately when the Android Keystore has no key, before
+    # attempting an anonymous call and incorrectly blaming model capabilities.
+    missing_current_key = bool(current_spec.get("secret_id") and not _key(current_spec))
+    if missing_current_key:
+        incompatible.append(old_id)
+    elif not _supports(current_spec, required, legacy_current=True):
         incompatible.append(old_id)
     elif old_id not in excluded_providers and _available(current_spec):
         try:
@@ -831,6 +844,11 @@ def chat(client, messages, tools=None, required_capabilities=None, excluded_prov
 
     fallbacks = [spec for spec in candidates(client, required) if _provider_id(spec) not in excluded_providers]
     if incompatible and not fallbacks:
+        if missing_current_key:
+            raise providers.ProviderError(
+                "مزود NVIDIA غير متصل: افتح اتصالات MusabAI وأدخل مفتاح NVIDIA جديداً "
+                "أو اربط مزوداً مجانياً آخر. لن يعمل النموذج بمجرد ظهوره في القائمة."
+            )
         names = ", ".join(sorted(required))
         raise providers.ProviderError(
             "No configured free AI provider supports this request (requires: %s)" % names
