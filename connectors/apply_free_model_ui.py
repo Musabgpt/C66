@@ -60,16 +60,12 @@ def apply(target, replace):
 
     replace(model,
             '    if os.environ.get("ANTHROPIC_API_KEY"):\n',
-            '    if os.environ.get("NEWAL_PHONE_URL") and "kilo-public/auto-free" in reg:\n'
-            '        return reg["kilo-public/auto-free"]\n'
-            '    if os.environ.get("ANTHROPIC_API_KEY"):\n')
-
-    replace(model,
-            '    if os.environ.get("ANTHROPIC_API_KEY"):\n',
             '    from . import provider_pool\n'
             '    for free in provider_pool.FREE_POOL:\n'
             '        if provider_pool._key(free):\n'
             '            return free\n'
+            '    if os.environ.get("NEWAL_PHONE_URL") and "kilo-public/auto-free" in reg:\n'
+            '        return reg["kilo-public/auto-free"]\n'
             '    if os.environ.get("ANTHROPIC_API_KEY"):\n')
 
     # Preserve the user's other models; send readiness separately, never send
@@ -97,6 +93,23 @@ def apply(target, replace):
     # Only free and already configured endpoints appear as usable Android
     # models. The provider setup panel still shows providers not yet linked.
     replace(ui,
+            '    try { S.models = await api("/api/models"); } catch (_) { S.models = null; }\n'
+            '    updatePickers();\n',
+            '    try { S.models = await api("/api/models"); } catch (_) { S.models = null; }\n'
+            '    if (S.models && window.NewAlPhone) {\n'
+            '      const selected = current("model") || "auto";\n'
+            '      const previous = S.models.models.find(m => m.id === selected);\n'
+            '      if (previous && previous.provider !== "local" && (!previous.free || !previous.ready)) {\n'
+            '        const viable = S.models.models.find(m => m.free === true && m.ready === true);\n'
+            '        if (viable) {\n'
+            '          await setOpt("model", viable.id);\n'
+            '          toast("Selected remote model is not free or not configured. Switched to " + viable.name, 7000);\n'
+            '        } else toast("Connect a free AI provider in MusabAI Connections", 7000);\n'
+            '      }\n'
+            '    }\n'
+            '    updatePickers();\n')
+
+    replace(ui,
             '      const remote = S.models.models.filter(m => m.provider !== "local");\n',
             '      const phone = !!window.NewAlPhone;\n'
             '      const remote = S.models.models.filter(m => m.provider !== "local" &&\n'
@@ -104,7 +117,7 @@ def apply(target, replace):
     replace(ui,
             '      remote.forEach(m => entries.push({ value: m.id, title: m.name, sub: m.provider, checked: model === m.id }));\n',
             '      remote.forEach(m => entries.push({ value: m.id, title: m.name,\n'
-            '        sub: phone ? "Free · configured" : m.provider, checked: model === m.id }));\n'
+            '        sub: phone ? (m.id === "kilo-public/auto-free" ? "Public Free · no key · avoid private data" : "Free · key saved") : m.provider, checked: model === m.id }));\n'
             '      if (phone && S.models.models.some(m => m.provider !== "local" && m.free && !m.ready))\n'
             '        entries.push({ value: "__connect__", title: "Connect free models · ربط النماذج المجانية",\n'
             '          sub: "NVIDIA, Groq, Gemini or OpenRouter: key required" });\n')
