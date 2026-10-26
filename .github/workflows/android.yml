@@ -135,6 +135,7 @@ jobs:
           node --check desktop/newal_code/ui/scheduled_tasks.js
           PYTHONPATH=desktop python3 -m unittest newal_code.scheduled_tasks_tests -v
           PYTHONPATH=desktop python3 -m unittest newal_code.nvidia_models_tests -v
+          PYTHONPATH=desktop python3 -m unittest newal_code.free_model_fix_tests -v
       - name: Evaluate deterministic routing contracts with Promptfoo
         env:
           PYTHONPATH: desktop

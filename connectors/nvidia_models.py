@@ -26,7 +26,10 @@ def _spec(model):
         "provider": "openai", "preset": "nvidia", "base_url": _BASE,
         "model": name, "secret_id": "nvidia", "api_key_env": "NVIDIA_API_KEY",
         "context": 65536, "free": True,
-        "capabilities": ["text", "tools", "streaming", "coding"]
+        "capabilities": (["text", "tools", "streaming", "coding", "reasoning"]
+                         if any(word in name.lower() for word in
+                                ("nemotron", "deepseek-r1", "qwq", "reasoner", "thinking"))
+                         else ["text", "tools", "streaming", "coding"])
     }
 
 

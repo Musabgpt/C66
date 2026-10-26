@@ -35,6 +35,8 @@
         </intent>
         <package android:name="com.termux" />
         <package android:name="com.android.chrome" />
+        <package android:name="com.whatsapp" />
+        <package android:name="com.whatsapp.w4b" />
         <intent>
             <action android:name="android.speech.RecognitionService" />
         </intent>
