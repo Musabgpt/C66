@@ -35,6 +35,18 @@ final class FirstRunSetup {
     private FirstRunSetup() {}
 
     static void offer(MainActivity a) {
+        boolean canOverlay = Build.VERSION.SDK_INT < 23 || Settings.canDrawOverlays(a);
+        boolean hasMic = a.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
+        boolean hasA11y = A11y.enabled(a);
+        if (canOverlay && a.getSharedPreferences("musabai-floating", Context.MODE_PRIVATE)
+                .getBoolean("enabled_by_user", true)) {
+            startOverlay(a, hasMic);
+        }
+        if (canOverlay && hasMic && hasA11y) {
+            a.getSharedPreferences("musabai-setup", Context.MODE_PRIVATE)
+                    .edit().putBoolean("intro_shown", true).putBoolean("completed", true).apply();
+            return;
+        }
         if (a.getSharedPreferences("musabai-setup", Context.MODE_PRIVATE)
                 .getBoolean("intro_shown", false)) return;
         a.getSharedPreferences("musabai-setup", Context.MODE_PRIVATE)

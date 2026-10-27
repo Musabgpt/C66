@@ -25,4 +25,16 @@ public class QuickPhoneActionsTest {
         assertNull(QuickPhoneActions.packageToOpen("Hi"));
         assertNull(QuickPhoneActions.packageToOpen(null));
     }
+
+    @Test public void wakeWordConversationalReplies() {
+        assertNotNull(QuickPhoneActions.conversationalReply("أم"));
+        assertNotNull(QuickPhoneActions.conversationalReply("ام"));
+        assertNotNull(QuickPhoneActions.conversationalReply("يا مصعب"));
+        assertNotNull(QuickPhoneActions.conversationalReply("اسمع"));
+    }
+
+    @Test public void commandNormalizationStripsWakeWords() {
+        assertEquals("افتح واتساب", QuickPhoneActions.normalizeCommand("أم افتح واتساب"));
+        assertEquals("افتح كروم", QuickPhoneActions.normalizeCommand("يا مصعب افتح كروم"));
+    }
 }
