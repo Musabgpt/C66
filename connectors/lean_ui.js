@@ -9,10 +9,72 @@
     if (env && env !== 'local') localStorage.setItem('nc.pref.env', 'local');   // the cloud picker is gone
   } catch (e) { /* storage blocked: the default is local */ }
 
-  const ar = () => (document.documentElement.lang || navigator.language || '').startsWith('ar');
+  const ar = () => (document.documentElement.lang || navigator.language || '').startsWith('ar') ||
+    (window.NCi18n ? NCi18n.wanted(localStorage.getItem('nc.pref.lang') || '') === 'ar' : false);
   const KEEP = /^(?:connect|test|disconnect):(?:github|termux)$/;
   const set = (el, text) => { if (el && el.textContent !== text) el.textContent = text; };
   const hide = el => { if (el && el.style.display !== 'none') el.style.display = 'none'; };
+
+  function closeTopOverlay() {
+    const openPicker = document.querySelector('.picker.open');
+    if (openPicker) { openPicker.classList.remove('open'); return true; }
+    const popup = document.querySelector('#popup');
+    if (popup && !popup.hidden) { popup.hidden = true; return true; }
+    const modal = document.querySelector('#modal');
+    if (modal && !modal.hidden) {
+      const btn = document.querySelector('#modal-close');
+      if (btn) btn.click(); else modal.hidden = true;
+      return true;
+    }
+    const conn = document.querySelector('#connector-dialog');
+    if (conn && !conn.hidden) {
+      const btn = document.querySelector('#connector-close');
+      if (btn) btn.click(); else conn.hidden = true;
+      return true;
+    }
+    const sched = document.querySelector('#scheduled-panel');
+    if (sched && !sched.hidden) {
+      const btn = document.querySelector('#scheduled-close');
+      if (btn) btn.click(); else sched.hidden = true;
+      return true;
+    }
+    const drawer = document.querySelector('#musab-drawer');
+    if (drawer && !drawer.hidden) {
+      const btn = drawer.querySelector('.md-x, [aria-label="Close"], button');
+      if (btn) btn.click(); else drawer.hidden = true;
+      return true;
+    }
+    const rev = document.querySelector('#review');
+    if (rev && !rev.hidden) {
+      const btn = document.querySelector('#review-close');
+      if (btn) btn.click(); else rev.hidden = true;
+      return true;
+    }
+    const term = document.querySelector('#terminal');
+    if (term && !term.hidden) {
+      const btn = document.querySelector('#term-close');
+      if (btn) btn.click(); else term.hidden = true;
+      return true;
+    }
+    const app = document.querySelector('#app');
+    if (app && window.innerWidth < 700 && !app.classList.contains('no-sidebar')) {
+      app.classList.add('no-sidebar');
+      return true;
+    }
+    return false;
+  }
+
+  function installBackGuard() {
+    try {
+      if (!history.state || !history.state.musabGuard) {
+        history.pushState({ musabGuard: 1 }, '', location.href);
+      }
+      window.addEventListener('popstate', () => {
+        closeTopOverlay();
+        try { history.pushState({ musabGuard: 1 }, '', location.href); } catch (_e) {}
+      });
+    } catch (_e) {}
+  }
 
   function tidy() {
     const list = document.querySelector('#connector-list');
@@ -38,11 +100,13 @@
       ? 'Termux يشغّل الأوامر وGitHub يحفظ المشاريع ويبنيها. مفاتيح النماذج المجانية تحتهما.'
       : 'Termux runs the commands and GitHub keeps and builds the projects. Free model keys are below.');
     set(document.querySelector('#open-connectors'), ar() ? 'الاتصالات' : 'Connections');
+    set(document.querySelector('#connector-refresh'), ar() ? 'تحديث' : 'Refresh');
   }
 
   let queued = false;
   const later = () => { if (!queued) { queued = true; requestAnimationFrame(() => { queued = false; tidy(); }); } };
   document.addEventListener('DOMContentLoaded', () => {
+    installBackGuard();
     tidy();
     const relevant = '#connector-dialog, #connector-list, #extension-list, #open-connectors';
     new MutationObserver(records => {

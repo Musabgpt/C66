@@ -202,6 +202,11 @@ jobs:
           export ANDROID_NDK="$ANDROID_HOME/ndk/27.2.12479018"
           bash android-lite/native/build_busybox.sh
           python3 -m unittest connectors.test_busybox_integration -v
+      # Gradle 8.7's Kotlin cannot parse the runner's default Java 25 version string.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.7"

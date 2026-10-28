@@ -547,3 +547,12 @@ if __name__ == "__main__":
             '                    "patch": prov == "openai" or name.startswith(("gpt-", "o3", "o4", "codex"))}\n')
     import apply_free_model_ui
     apply_free_model_ui.apply(target, replace)
+    # Changes made live on the phone engine (27/10) on top of the fully patched files above.
+    # They are final engine files, so they are copied last and replace the patched result.
+    live = target / "connectors/phone_live"
+    for path in sorted(live.rglob("*")):
+        if path.is_file():
+            dest = target / "desktop/newal_code" / path.relative_to(live)
+            if not dest.exists():
+                raise SystemExit(f"Phone live overlay has no engine counterpart: {dest}")
+            shutil.copyfile(path, dest)
