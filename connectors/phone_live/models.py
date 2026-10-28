@@ -1,0 +1,392 @@
+from . import provider_pool
+"""Any model, or a set of them: the registry and how a model id becomes a running client.
+
+A model is one of:
+  local      a GGUF file run on llama.cpp by NewAl Code (catalog models, or any file the user adds)
+  openai     any OpenAI-compatible endpoint (base_url + model + key): OpenAI, OpenRouter, DeepSeek, Groq, Gemini,
+             Mistral, Together, xAI, Ollama, LM Studio, vLLM, llama.cpp on another machine...
+  anthropic  Anthropic's Messages API
+
+Ids like "ollama/qwen3-coder:30b", "openrouter/qwen/qwen3-coder" or "anthropic/claude-sonnet-4-5" work without any
+setup beyond the provider's key in the environment. Roles (main, fast, review, plan) and named teams map roles to
+models, so several models can share one task (a local model codes, an API model reviews...)."""
+
+import json
+import os
+import re
+import time
+import urllib.parse
+
+from . import catalog, gguf, hardware, providers, runtime, settings
+from . import connect as onetap
+
+PRESETS = {
+    "openai": ("https://api.openai.com/v1", "OPENAI_API_KEY"),
+    "openrouter": ("https://openrouter.ai/api/v1", "OPENROUTER_API_KEY"),
+    "deepseek": ("https://api.deepseek.com/v1", "DEEPSEEK_API_KEY"),
+    "groq": ("https://api.groq.com/openai/v1", "GROQ_API_KEY"),
+    "nvidia": ("https://integrate.api.nvidia.com/v1", "NVIDIA_API_KEY"),
+    "gemini": ("https://generativelanguage.googleapis.com/v1beta/openai", "GEMINI_API_KEY"),
+    "mistral": ("https://api.mistral.ai/v1", "MISTRAL_API_KEY"),
+    "together": ("https://api.together.xyz/v1", "TOGETHER_API_KEY"),
+    "xai": ("https://api.x.ai/v1", "XAI_API_KEY"),
+    "cerebras": ("https://api.cerebras.ai/v1", "CEREBRAS_API_KEY"),
+    "fireworks": ("https://api.fireworks.ai/inference/v1", "FIREWORKS_API_KEY"),
+    "ollama": ("http://localhost:11434/v1", ""),
+    "lmstudio": ("http://localhost:1234/v1", ""),
+    "vllm": ("http://localhost:8000/v1", ""),
+    "llamacpp": ("http://localhost:8080/v1", ""),
+}
+ROLES = ("main", "fast", "review", "plan")
+
+
+def _norm_id(s):
+    return re.sub(r"[^a-z0-9._:/\-]+", "-", str(s or "").strip().lower()).strip("-")
+
+
+def local_spec(path, mid=None, **over):
+    """A spec for a GGUF file on disk."""
+    try:
+        info = gguf.info(path)
+    except (OSError, ValueError):
+        info = {"name": os.path.basename(path), "context": 0, "size": os.path.getsize(path) if os.path.exists(path) else 0,
+                "arch": ""}
+    name = info.get("name") or os.path.basename(path)
+    spec = {"id": mid or _norm_id(os.path.splitext(os.path.basename(path))[0]), "name": name, "provider": "local",
+            "file": path, "arch": info.get("arch", ""), "size": info.get("size", 0),
+            "patch": "gpt-oss" in (info.get("arch", "") + name).lower(), "mtp": bool(info.get("nextn"))}
+    spec.update({k: v for k, v in over.items() if v not in (None, "")})
+    return spec
+
+
+def registry():
+    """{id: spec} of every model NewAl Code knows: the catalog (downloaded or not), the user's models, NewAl desktop's,
+    and GGUF files found in the model folders."""
+    out = {}
+    for m in catalog.MODELS:
+        p = catalog.path(m)
+        spec = {"id": m["id"], "name": m["title"], "provider": "local", "file": p or "", "catalog": True,
+                "downloaded": bool(p), "size": m["size"], "mtp": catalog.has_mtp_file(m), "fits": catalog.fits(m),
+                "about": m.get("about", ""), "context": m.get("context", 32768)}
+        out[m["id"]] = spec
+    known_files = {os.path.abspath(s["file"]) for s in out.values() if s.get("file")}
+    found = [os.path.join(d, f) for d in settings.MODEL_DIRS if os.path.isdir(d) for f in sorted(os.listdir(d))]
+    for p in found + shared_ggufs():
+        p, f = os.path.abspath(p), os.path.basename(p)
+        if f.lower().endswith(".gguf") and p not in known_files and not _helper_file(f) and gguf.is_gguf(p):
+            s = local_spec(p)
+            out.setdefault(s["id"], dict(s, downloaded=True, fits=_fits_file(s)))
+            known_files.add(p)
+    out.update(onetap.registered())                  # Gemini, DeepSeek... connected in one tap
+    users = settings.user().get("models") or {}
+    for mid, spec in users.items():
+        s = dict(spec, id=mid)
+        s.setdefault("name", mid)
+        s.setdefault("provider", "openai" if s.get("base_url") else "local")
+        if s["provider"] == "local" and s.get("file"):
+            s = local_spec(s["file"], mid, **{k: v for k, v in s.items() if k not in ("file", "id")})
+            s["downloaded"] = os.path.isfile(s["file"])
+            s.setdefault("fits", _fits_file(s))
+        out[mid] = s
+    # A file the user added (picked in Models) is listed once, under the name it was added with.
+    added = {os.path.abspath(s["file"]) for mid, s in out.items() if mid in users and s.get("file")}
+    for mid in [m for m, s in out.items() if m not in users and not s.get("catalog") and s.get("file")
+                and os.path.abspath(s["file"]) in added]:
+        del out[mid]
+    for s in _desktop_models():
+        out.setdefault(s["id"], s)
+    from . import nvidia_models
+    for s in nvidia_models.models():
+        out.setdefault(s["id"], s)
+    from . import provider_pool
+    for s in list(provider_pool.FREE_POOL) + list(provider_pool.NVIDIA_FALLBACK_POOL):
+        out.setdefault(s["id"], dict(s))
+    # Official Kilo Gateway Auto Free offers anonymous, rate-limited access.
+    # The user should not send confidential data through public free routing.
+    out.setdefault("kilo-public/auto-free", {
+        "id": "kilo-public/auto-free", "name": "Auto Free · No key (public)",
+        "provider": "openai", "base_url": "https://ai-gateway.kilo.ai/api/v1",
+        "model": "kilo-auto/free", "free": True,
+        "capabilities": ["text", "tools", "streaming", "reasoning"],
+        "about": "Public free tier; prompts may be logged by providers",
+    })
+    return out
+
+
+# The phone's shared storage (Download, Documents, a Telegram download...): GGUF files the user already has there are
+# models too, once NewAl Code Lite may read it (Android's "All files access"). Looked for a few folders deep, not in
+# photos, videos or music; the list is kept half a minute (the registry is read often, and that storage is slow).
+SHARED_SKIP = {"android", "dcim", "pictures", "movies", "music", "ringtones", "alarms", "notifications", "podcasts",
+               "audiobooks", "recordings", "screenshots", "lost.dir", "whatsapp"}
+_shared = {"at": 0.0, "root": None, "files": []}
+
+
+def shared_storage():
+    """The phone's shared storage (NewAl Code Lite passes it), when NewAl Code may read it."""
+    root = os.environ.get("NEWAL_SHARED_STORAGE") or ""
+    return root if root and os.path.isdir(root) and os.access(root, os.R_OK | os.X_OK) else ""
+
+
+def shared_ggufs(depth=3, limit=5000):
+    root = shared_storage()
+    if not root:
+        return []
+    if _shared["root"] == root and time.time() - _shared["at"] < 30:
+        return list(_shared["files"])
+    files, seen = [], 0
+    stack = [(root, 0, True), (os.path.join(root, "Android", "media"), -1, False)]
+    while stack and seen < limit:
+        d, level, top = stack.pop()
+        try:
+            entries = list(os.scandir(d))
+        except OSError:
+            continue
+        for e in entries:
+            seen += 1
+            if e.name.startswith("."):
+                continue
+            try:
+                if e.is_dir(follow_symlinks=False):
+                    if level < depth and not (top and e.name.lower() in SHARED_SKIP):
+                        stack.append((e.path, level + 1, False))
+                elif e.name.lower().endswith(".gguf") and not _helper_file(e.name):
+                    files.append(e.path)
+            except OSError:
+                pass
+    _shared.update(at=time.time(), root=root, files=sorted(files))
+    return list(files)
+
+
+def _fits_file(spec):
+    """Whether a GGUF file's weights fit the memory models may use here (with a little room for its cache)."""
+    try:
+        return int(spec.get("size") or 0) + 200 * 1024 ** 2 <= hardware.budget()
+    except Exception:  # noqa: BLE001 - unknown: let the user try
+        return True
+
+
+def _helper_file(name):
+    n = name.lower()
+    return any(x in n for x in ("mmproj", "embedding", "reranker", "sd_turbo", "eagle", "draft"))
+
+
+def _desktop_models():
+    """Models added in NewAl desktop («🤖 الوكلاء والنماذج»): endpoints and local files."""
+    path = os.path.join(os.path.expanduser("~"), "NewAl", "data", "models.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            entries = json.load(f)
+    except (OSError, ValueError):
+        return []
+    out = []
+    for e in entries if isinstance(entries, list) else entries.values() if isinstance(entries, dict) else []:
+        if not isinstance(e, dict) or not e.get("id"):
+            continue
+        if e.get("provider") == "openai" and e.get("base_url"):
+            out.append({"id": "newal/" + e["id"], "name": e.get("name") or e["id"], "provider": "openai",
+                        "base_url": e["base_url"], "model": e.get("model") or e["id"],
+                        "api_key_env": e.get("api_key_env", ""), "context": e.get("context", 0)})
+    return out
+
+
+def resolve(mid):
+    """The spec for a model id: a registered model, a provider/model id, or a path to a GGUF file."""
+    reg = registry()
+    if not mid or mid == "auto":
+        return auto(reg)
+    if mid in reg:
+        return reg[mid]
+    if mid.lower().endswith(".gguf") and os.path.isfile(os.path.expanduser(mid)):
+        return local_spec(os.path.abspath(os.path.expanduser(mid)))
+    if "/" in mid:
+        prov, name = mid.split("/", 1)
+        prov = prov.lower()
+        if prov == "anthropic":
+            return {"id": mid, "name": name, "provider": "anthropic", "model": name, "api_key_env": "ANTHROPIC_API_KEY",
+                    "preset": "anthropic"}
+        if prov in PRESETS:
+            base, key = PRESETS[prov]
+            return {"id": mid, "name": name, "provider": "openai", "base_url": base, "model": name, "preset": prov,
+                    "api_key_env": key, "secret_id": "nvidia" if prov == "nvidia" else "",
+                    "patch": prov == "openai" or name.startswith(("gpt-", "o3", "o4", "codex"))}
+    raise ValueError("unknown model %r: add it in settings, or use provider/model (e.g. ollama/qwen3-coder:30b)" % mid)
+
+
+def auto(reg=None):
+    """The model to use when none is chosen: the recommended local model for this computer when it is downloaded,
+    else the best downloaded local model that fits, else an API model whose key is set."""
+    reg = reg or registry()
+    rec = catalog.recommended()
+    if reg.get(rec["id"], {}).get("downloaded"):
+        return reg[rec["id"]]
+    budget = hardware.budget(setting_gb=settings.user().get("ram_budget_gb"))
+    local = [s for s in reg.values() if s.get("provider") == "local" and s.get("downloaded") and s.get("file")
+             and (s.get("size") or 0) < budget * 0.9]
+    if local:
+        return max(local, key=lambda s: s.get("size") or 0)
+    from . import provider_pool
+    is_phone = bool(os.environ.get("NEWAL_PHONE_URL"))
+    for pid, c in (settings.user().get("connected") or {}).items():      # an API connected in one tap
+        if c.get("default") and "%s/%s" % (pid, c["default"]) in reg:
+            spec = reg["%s/%s" % (pid, c["default"])]
+            if _key(spec) and provider_pool._available(spec) and (not is_phone or spec.get("free")):
+                return spec
+    fast_pool = [
+        f for f in provider_pool.FREE_POOL if f.get("secret_id") != "nvidia"
+    ] + list(provider_pool.NVIDIA_FALLBACK_POOL) + [
+        f for f in provider_pool.FREE_POOL if f.get("secret_id") == "nvidia"
+    ]
+    for free in fast_pool:
+        if provider_pool._key(free) and provider_pool._available(free):
+            return free
+    for free in fast_pool:
+        if provider_pool._key(free):
+            return free
+    if os.environ.get("NEWAL_PHONE_URL") and "kilo-public/auto-free" in reg:
+        return reg["kilo-public/auto-free"]
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        return resolve("anthropic/claude-sonnet-4-5")
+    if os.environ.get("OPENAI_API_KEY"):
+        return resolve("openai/gpt-5")
+    raise ValueError("no model yet: download one (newal-code models --download %s) or add an API model"
+                     % rec["id"])
+
+
+def role_model(role, team=None):
+    """The model id configured for a role (the team's, else the settings' roles), or None: then the thread's own
+    model does that job too (no second model is loaded)."""
+    cfg = settings.user()
+    teams = cfg.get("teams") or {}
+    if team and team in teams and teams[team].get(role):
+        return teams[team][role]
+    roles = cfg.get("roles") or {}
+    return roles.get(role) or None
+
+
+def _key(spec):
+    if spec.get("api_key"):
+        return spec["api_key"]
+    env = spec.get("api_key_env")
+    if env and os.environ.get(env):
+        return os.environ[env]
+    if spec.get("secret_id"):
+        from . import provider_pool
+        return provider_pool._key(spec)
+    if spec.get("preset") == "nvidia":
+        from . import provider_pool
+        return provider_pool._key(dict(spec, secret_id="nvidia"))
+    return onetap.key_for(spec.get("preset") or "")
+
+
+class Client:
+    """A model ready to answer: the provider, the name it goes by there, and its settings."""
+
+    def __init__(self, spec, provider, model_name, server=None):
+        self.spec = spec
+        self.provider = provider
+        self.model_name = model_name
+        self.server = server
+
+    @property
+    def id(self):
+        return self.spec["id"]
+
+    @property
+    def local(self):
+        return self.spec.get("provider") == "local"
+
+    @property
+    def on_device(self):
+        """A model running on this device, or a small one: llama.cpp run by NewAl Code, Ollama, LM Studio, a llama.cpp
+        server, the phone's model. OmniCode's rules for weak devices apply to it: the local system prompt
+        (prompts.LOCAL), 25 steps a turn (circuit.py), tool calls read from its text too (repair.py)."""
+        if self.local or self.spec.get("small") or self.spec.get("preset") in ("ollama", "lmstudio", "llamacpp"):
+            return True
+        host = urllib.parse.urlsplit(str(self.spec.get("base_url") or "")).hostname or ""
+        return host in ("localhost", "127.0.0.1", "::1")
+
+    def context(self):
+        if self.server:
+            return self.server.ctx
+        return int(self.spec.get("context") or 128000)
+
+    def default_reasoning(self):
+        r = settings.user().get("reasoning", "auto")
+        if r and r != "auto":
+            return r
+        return self.spec.get("reasoning") or ("off" if self.local or self.spec.get("small") else "medium")
+
+    def stopped(self):
+        """A local model whose server the pool stopped to make room for another one (RAM)."""
+        return bool(self.server) and not self.server.alive()
+
+    def revive(self):
+        """Starts this model's server again (the pool makes room for it in turn)."""
+        old = self.server
+        self.server = runtime.pool.get(old.path, ctx=old.ctx, mtp=old.mtp, speculative=old.speculative,
+                                       threads=old.threads)
+        self.provider = providers.LlamaCpp(self.server.url + "/v1")
+        return self.server
+
+    def chat(self, messages, tools=None, owner="main", **kw):
+        extra = dict(kw.pop("extra", None) or {})
+        if self.server:
+            if self.stopped():
+                self.revive()
+            extra.setdefault("id_slot", self.server.take_slot(owner))
+            self.server.used = __import__("time").time()
+            kw.setdefault("temperature", self.spec.get("temperature", 0.2))
+            extra.setdefault("top_p", 0.9)
+        return provider_pool.chat_recovering(self, messages, tools=tools, owner=owner, extra=extra, **kw)
+
+
+def connect(spec, ctx=0):
+    """A Client for a spec; a local model's llama-server is started (or reused) within the RAM budget."""
+    prov = spec.get("provider", "local")
+    if prov == "local":
+        path = spec.get("file")
+        if not path or not os.path.isfile(path):
+            raise ValueError("%s is not downloaded yet (newal-code models --download %s)" % (spec.get("name"), spec["id"]))
+        cfg = settings.user()
+        spec_mode = cfg.get("speculative", "auto")
+        mtp = bool(spec.get("mtp")) and spec_mode in ("auto", "mtp", "draft", "both")
+        server = runtime.pool.get(path, ctx=ctx or int(cfg.get("context") or 0) or int(spec.get("context") or 0),
+                                  mtp=mtp, speculative="ngram" if spec_mode in ("ngram", "both") else "",
+                                  threads=int(cfg.get("threads") or 0))
+        return Client(spec, providers.LlamaCpp(server.url + "/v1"), os.path.basename(path), server)
+    if prov == "anthropic":
+        key = _key(spec)
+        if not key:
+            raise ValueError("set ANTHROPIC_API_KEY (or api_key) for %s" % spec["id"])
+        return Client(spec, providers.Anthropic(key, spec.get("base_url") or "https://api.anthropic.com"),
+                      spec.get("model") or spec["id"].split("/", 1)[-1])
+    base = spec.get("base_url")
+    if not base:
+        raise ValueError("model %s has no base_url" % spec["id"])
+    if base.rstrip("/") in ("https://integrate.api.nvidia.com/v1",
+                             "https://ai-gateway.kilo.ai/api/v1"):
+        from . import provider_pool
+        credential = _key(spec)
+        if base.rstrip("/") == "https://integrate.api.nvidia.com/v1" and not credential:
+            raise ValueError("NVIDIA not connected: enter a new API key under MusabAI Connections → NVIDIA")
+        client = provider_pool.provider(dict(spec, api_key=credential))
+        return Client(spec, client, spec.get("model") or spec["id"])
+    credential = _key(spec)
+    if spec.get("secret_id") and not credential:
+        raise ValueError("Connect the selected free provider in MusabAI Connections first")
+    return Client(spec, providers.OpenAICompat(base, credential, spec.get("headers")),
+                  spec.get("model") or spec["id"])
+
+
+def discover():
+    """Models served right now by local apps (Ollama, LM Studio): offered in the model picker."""
+    found = []
+    for prov in ("ollama", "lmstudio"):
+        base, _ = PRESETS[prov]
+        try:
+            for name in providers.OpenAICompat(base).models():
+                found.append({"id": "%s/%s" % (prov, name), "name": name, "provider": "openai", "base_url": base,
+                              "model": name})
+        except Exception:  # noqa: BLE001
+            continue
+    return found

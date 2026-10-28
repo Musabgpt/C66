@@ -14,6 +14,22 @@ _BASE = "https://integrate.api.nvidia.com/v1"
 _CACHE = (0.0, [])
 _LOCK = threading.RLock()
 _DEFAULT = "nvidia/nemotron-3-ultra-550b-a55b"
+_PRIORITY = (
+    "nvidia/nemotron-3.5-lightning-30b-a3b",
+    "nvidia/nemotron-3.5-bolt-e4b",
+    "nvidia/nemotron-3-ultra-550b-a55b",
+    "minimaxai/minimax-m3.1-flash",
+    "stepfun-ai/step-5-preview",
+    "nvidia/nemotron-3.5-super-vl-120b-a12b",
+)
+_RETIRED = frozenset({
+    "qwen/qwen3.5-397b-a17b",
+    "openai/gpt-oss-120b",
+    "moonshotai/kimi-k2.6",
+    "nvidia/nemotron-3-super-120b-a12b",
+    "nvidia/llama-3.1-nemotron-ultra-253b-v1",
+    "mistralai/mistral-large-2-instruct",
+})
 
 
 def _spec(model):
@@ -21,15 +37,18 @@ def _spec(model):
     if not name or len(name) > 150 or any(c not in
                 "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_./:-" for c in name):
         return None
+    low = name.lower()
+    caps = ["text", "tools", "streaming", "coding"]
+    if any(word in low for word in ("nemotron", "deepseek-r1", "qwq", "reasoner", "thinking", "step-5", "glm-5")):
+        caps.append("reasoning")
+    if any(word in low for word in ("-vl-", "vision")):
+        caps.append("vision")
     return {
         "id": "nvidia/" + name, "name": "NVIDIA · " + name,
         "provider": "openai", "preset": "nvidia", "base_url": _BASE,
         "model": name, "secret_id": "nvidia", "api_key_env": "NVIDIA_API_KEY",
         "context": 65536, "free": True,
-        "capabilities": (["text", "tools", "streaming", "coding", "reasoning"]
-                         if any(word in name.lower() for word in
-                                ("nemotron", "deepseek-r1", "qwq", "reasoner", "thinking"))
-                         else ["text", "tools", "streaming", "coding"])
+        "capabilities": caps,
     }
 
 
@@ -47,13 +66,18 @@ def _fetch_catalog(key):
     data = json.loads(raw.decode("utf-8"))
     if not isinstance(data, dict):
         return []
-    # The NVIDIA catalog includes embedding, reranking, audio and other
+    # The NVIDIA catalog includes embedding, reranking, audio, safety and parser
     # endpoints. Only expose conversational models in MusabAI's chat picker.
     excluded = ("embed", "rerank", "retrieval", "whisper", "asr",
-                "text-to-speech", "speech-to-text", "audio", "image-gen")
-    return [item["id"] for item in (data.get("data") or [])
-            if isinstance(item, dict) and isinstance(item.get("id"), str)
-            and not any(word in item["id"].lower() for word in excluded)]
+                "text-to-speech", "speech-to-text", "audio", "image-gen",
+                "parse", "safety", "reward", "guard", "diffusion", "recurrentgemma")
+    found = [item["id"] for item in (data.get("data") or [])
+             if isinstance(item, dict) and isinstance(item.get("id"), str)
+             and item["id"] not in _RETIRED
+             and not any(word in item["id"].lower() for word in excluded)]
+    rank = {m: i for i, m in enumerate(_PRIORITY)}
+    found.sort(key=lambda m: (rank.get(m, 999), m))
+    return found
 
 
 def models():

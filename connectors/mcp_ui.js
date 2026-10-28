@@ -1,7 +1,9 @@
 // Musab Hub MCP integrations: vetted local bundles + custom remote HTTP MCP.
 (() => {
   'use strict';
-  const tr = (en, ar) => document.documentElement.lang.startsWith('ar') ? ar : en;
+  const ar = () => document.documentElement.lang.startsWith('ar') ||
+    (window.NCi18n ? NCi18n.wanted(localStorage.getItem('nc.pref.lang') || '') === 'ar' : /^ar\b/i.test(navigator.language || ''));
+  const tr = (en, arabic) => ar() ? arabic : en;
   const node = (tag, text = '') => { const e = document.createElement(tag); e.textContent = text; return e; };
   const current = () => window.NewAlWorkspaceSession?.();
 
