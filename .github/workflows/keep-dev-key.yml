@@ -1,0 +1,21 @@
+name: MusabAI — keep the development key
+# GitHub removes a cache nobody used for 7 days. The development signing key lives in one (android.yml), and a new
+# key would mean uninstalling the app (and its data) before the next build installs. Reading it every 3 days keeps
+# it; this takes seconds and builds nothing.
+on:
+  schedule:
+    - cron: "17 3 */3 * *"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  keep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Read the development signing key
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: musabai-development-debug-keystore-v1
+          fail-on-cache-miss: true
