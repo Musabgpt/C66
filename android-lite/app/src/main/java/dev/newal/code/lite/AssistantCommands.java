@@ -183,7 +183,14 @@ final class AssistantCommands {
                 }
             }
         }
-        if (at < 0) return c;
+        if (at < 0) {
+            // no hour, but "بكرا الصبح": the part of the day still says when, and is not part of a label
+            for (Tok k : t) {
+                if (AM.contains(k.f)) { c.period = 1; k.used = true; }
+                else if (PM.contains(k.f)) { c.period = 2; k.used = true; }
+            }
+            return c;
+        }
         int i = at + 1;
         if (i < t.size()) {
             String f = t.get(i).f;
@@ -473,8 +480,10 @@ final class AssistantCommands {
         if (timerWord) return null;   // a timer with no length: let the agent ask
         int hour = resolveHour(clk.hour, clk.minute, clk.period, clk.noon, nowHour, nowMinute);
         if (remind) {
+            // "ذكرني شو قلتلك" / "ذكرني اسم الفيلم": with no time, day or delay it is a question, not a reminder
+            if (hour < 0 && dayOffset == 0 && clk.period == 0) return null;
             Command c = new Command(Kind.REMINDER);
-            c.hour = hour;
+            c.hour = hour >= 0 ? hour : clk.period == 1 ? 9 : clk.period == 2 ? 18 : -1;
             c.minute = hour >= 0 ? clk.minute : 0;
             c.dayOffset = dayOffset;
             c.text = label;
@@ -497,6 +506,11 @@ final class AssistantCommands {
         if (f.startsWith("بال") && f.contains("واتس")) return null;      // a WhatsApp call: the agent
         if (f.isEmpty() || f.contains("واتس") || f.contains("whatsapp")) return null;
         if (f.startsWith("الساعه") || f.startsWith("ساعه") || f.startsWith("الباب")) return null;   // "دق الساعة 5"
+        // "اتصل بالانترنت" / "بالواي فاي" is connecting, not calling
+        // (f is folded: "على" reads "علي")
+        if (f.matches("^(?:ب|ع|علي )?(?:ال)?(?:انترنت|نت|واي فاي|وايفاي|شبكه|راوتر|بلوتوث|سيرفر|خادم|internet|wifi|wi-fi|network).*")) {
+            return null;
+        }
         Command c = new Command(Kind.CALL);
         recipient(c, rest);
         return c.target.isEmpty() ? null : c;
@@ -506,8 +520,8 @@ final class AssistantCommands {
             "ارسلي", "send", "text", "message", "راسل", "كتب", "اكتب");
     // not "نص": "اكتب نص عن ..." is writing, not a message
     private static final Set<String> MESSAGE_WORDS = set("رساله", "مسج", "مسيج", "sms", "message", "msg", "رسالة", "text");
-    private static final Set<String> BODY_MARK = set("نصها", "مضمونها", "قله", "قلها", "قلو", "قوله", "قولها", "قول", "انو",
-            "تقول", "بتقول", "فيها", "محتواها", "saying", "that", "says", ":", "قلهم", "يقول");
+    private static final Set<String> BODY_MARK = set("نصها", "نصه", "نصو", "مضمونها", "مضمونه", "قله", "قلها", "قلو",
+            "قوله", "قولها", "قول", "انو", "تقول", "بتقول", "فيها", "محتواها", "saying", "that", "says", ":", "قلهم", "يقول");
 
     private static Command message(List<Tok> t, String first, String all) {
         if (!SEND.contains(first) || t.size() < 3) return null;
@@ -517,7 +531,10 @@ final class AssistantCommands {
         if (!msg) return null;
         t.get(0).used = true;
         for (Tok k : t) {
-            if (MESSAGE_WORDS.contains(k.f) || k.f.contains("واتس") || k.f.equals("whatsapp")) k.used = true;
+            if (MESSAGE_WORDS.contains(k.f) || k.f.contains("واتس") || k.f.equals("whatsapp")
+                    || k.f.equals("a") || k.f.equals("an") || k.f.equals("the")) {
+                k.used = true;
+            }
         }
         // "على واتساب" / "via WhatsApp": the word before the app's name goes too
         for (int i = 0; i + 1 < t.size(); i++) {
@@ -545,9 +562,18 @@ final class AssistantCommands {
                 body = join(t, mark, t.size());
             }
         } else {
+            // "اكتب رسالة لأحمد عن الاجتماع" asks for the message to be written: the agent does that
+            if (first.equals("اكتب") || first.equals("كتب")) return null;
             int w = -1;
             for (int i = 1; i < t.size(); i++) if (!t.get(i).used) { w = i; break; }
             if (w < 0) return null;
+            // with no "قله"/"نصها", the next word must be who: "لأحمد", "لـ 0790...", a number, or "text Sarah ..."
+            // ("ابعث رسالة شكر لمديري" is a thank-you message to write first)
+            String fw = t.get(w).f;
+            boolean english = first.equals("text") || first.equals("message") || first.equals("send");
+            boolean recipientNext = fw.matches("\\+?[\\d\\-]{3,}") || (fw.length() > 2 && fw.charAt(0) == 'ل')
+                    || set("ل", "لـ", "الى", "to").contains(fw) || english;
+            if (!recipientNext) return null;
             // "ابعث رسالة لأحمد" / "send a message to 0790 123": who is the next word, or a whole number
             int end = w + 1;
             String f0 = TextFold.fold(t.get(w).raw);
@@ -562,9 +588,25 @@ final class AssistantCommands {
         return c.target.isEmpty() ? null : c;
     }
 
+    private static final Set<String> PLACE_PREP = set("على", "ع", "الى", "لعند", "عند", "ل", "لـ", "لل", "to");
+
+    private static final Set<String> HOW_WORDS = set("كيف", "كيفيه", "طريقه", "طريقة", "شو", "ايش", "ليش", "مين", "كم",
+            "how", "what", "why", "who", "شلون", "وش");
+
     private static Command navigate(List<Tok> t, String first, String all) {
         int from;
-        if (set("خذني", "وديني", "دلني", "دليني", "وصلني", "navigate", "directions").contains(first)) from = 1;
+        if (all.equals("take me home") || all.equals("navigate home") || all.equals("directions home")) {
+            Command home = new Command(Kind.NAVIGATE);
+            home.target = "home";
+            return home;
+        }
+        if (set("خذني", "وديني", "دلني", "دليني", "وصلني").contains(first)) {
+            // a place comes after على / ع / الى / لعند ("خذني على البيت", "عالبيت"); "خذني بعين الاعتبار" is not one
+            if (t.size() < 2) return null;
+            String n = t.get(1).f;
+            if (!(PLACE_PREP.contains(n) || n.startsWith("عال") || n.startsWith("لل") || n.startsWith("لعند"))) return null;
+            from = 1;
+        } else if (set("navigate", "directions").contains(first)) from = 1;
         else if (all.startsWith("take me to") || all.startsWith("كيف بروح") || all.startsWith("كيف اروح")
                 || all.startsWith("كيف بوصل") || all.startsWith("كيف اوصل") || all.startsWith("كيف بدي روح")) {
             from = all.startsWith("كيف بدي روح") ? 3 : 2;
@@ -588,6 +630,8 @@ final class AssistantCommands {
             place = lead[1];
         }
         place = place.replaceFirst("^(?:ع|ل)(?=ال)", "");
+        // "دلني كيف اعمل كيكة" / "دلني على طريقة ...": a how-to question, not a place
+        if (HOW_WORDS.contains(TextFold.fold(place.split(" ", 2)[0]))) return null;
         Command c = new Command(Kind.NAVIGATE);
         c.target = place.trim();
         return c.target.isEmpty() ? null : c;
@@ -623,8 +667,9 @@ final class AssistantCommands {
             return null;
         }
         String first = t.get(0).f;
-        if (!set("شغل", "شغلي", "شغللي", "حطلي", "حط", "ابحث", "ابحثلي", "دور", "دورلي", "play", "search", "افتح", "فرجيني",
-                "وريني", "اعرضلي", "اسمعني").contains(first)) {
+        boolean leadingApp = (first.equals("youtube") || first.equals("يوتيوب") || first.equals("اليوتيوب")) && t.size() > 1;
+        if (!leadingApp && !set("شغل", "شغلي", "شغللي", "حطلي", "حط", "ابحث", "ابحثلي", "دور", "دورلي", "play", "search",
+                "افتح", "فرجيني", "وريني", "اعرضلي", "اسمعني").contains(first)) {
             return null;
         }
         for (Tok k : t) {
