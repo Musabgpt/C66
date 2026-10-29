@@ -322,6 +322,18 @@ jobs:
           MUSABAI_ALLOW_DEBUG_SIGNING: "true"
         run: |
           set -euo pipefail
+          # Gradle's debug key in the one place the cache step keeps (restored above, made here on the first run):
+          # left to itself, the Android Gradle plugin keeps it elsewhere on the runner and every run had a new key.
+          export ANDROID_USER_HOME="$HOME/.android"
+          mkdir -p "$ANDROID_USER_HOME"
+          if [ ! -s "$ANDROID_USER_HOME/debug.keystore" ]; then
+            keytool -genkeypair -keystore "$ANDROID_USER_HOME/debug.keystore" -storetype PKCS12 \
+              -storepass android -keypass android -alias androiddebugkey -keyalg RSA -keysize 2048 \
+              -validity 10000 -dname "CN=MusabAI Development,O=MusabAI,C=US"
+            echo "::notice::Created the development signing key; later runs reuse it from the Actions cache."
+          else
+            echo "::notice::Reusing the cached development signing key."
+          fi
           gradle :app:testReleaseUnitTest :app:assembleRelease --stacktrace
           python3 connectors/verify_package.py android-lite/app/build/generated/newal-assets/newal_code.zip
           cp android-lite/app/build/outputs/apk/release/app-release.apk MusabAI-Connectors-DEV.apk
