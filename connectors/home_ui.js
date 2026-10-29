@@ -131,7 +131,8 @@
     }
   }
 
-  // [icon, English, Arabic, what it does]: run = done now, fill = the start of a request to finish, call = the app
+  // [icon, English, Arabic, what it does]: run = done by the phone now, fill = the start of a request to finish,
+  // send = a question asked to the agent at once, call = something of the app's own
   const GROUPS = [
     ['Organise', 'التنظيم', [
       ['⏰', 'Alarm', 'منبه', { fill: ['Wake me up at ', 'صحيني الساعة '] }],
@@ -150,6 +151,12 @@
       ['🔋', 'Battery', 'البطارية', { run: ['Battery', 'كم البطارية'] }],
       ['📸', 'Screenshot', 'لقطة شاشة', { run: ['Screenshot', 'خذ لقطة شاشة'] }],
       ['🔇', 'Silent', 'صامت', { run: ['Mute', 'اكتم الصوت'] }],
+    ]],
+    ['Ask', 'اسأل', [
+      ['🌤️', 'Weather', 'الطقس', { send: ['What is the weather today where I am?', 'شو الطقس اليوم عندي؟'] }],
+      ['📰', 'News', 'الأخبار', { send: ['What are the main news headlines today?', 'شو أهم الأخبار اليوم؟'] }],
+      ['🗓️', 'Plan my day', 'رتّب يومي', { fill: ['Plan my day: ', 'رتبلي يومي: '] }],
+      ['🌐', 'Translate', 'ترجمة', { fill: ['Translate to English: ', 'ترجم للعربي: '] }],
     ]],
     ['Discover', 'اكتشف', [
       ['🔎', 'Search', 'بحث', { fill: ['Search for ', 'ابحث عن '] }],
@@ -180,6 +187,10 @@
         if (!handle(act.run[1])) fillInput(tr(act.run[0], act.run[1]));
       } else if (act.fill) {
         fillInput(tr(act.fill[0], act.fill[1]), act.back ? tr(act.back[0], act.back[1]) : 0);
+      } else if (act.send) {
+        // a question for the agent (live facts, thinking): asked at once
+        fillInput(tr(act.send[0], act.send[1]));
+        if (!busy()) setTimeout(() => document.getElementById('send')?.click(), 30);
       } else if (act.call) {
         act.call();
       }
