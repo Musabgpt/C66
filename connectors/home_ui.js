@@ -238,6 +238,33 @@
     box.append(row);
   }
 
+  /**
+   * The chat jumps to its end when a thread loads (app.js scrollDown); with the home showing that hides the greeting
+   * and the microphone. A scroll the person did not make (no touch, wheel or key in the last moments) goes back to
+   * the top while the home is shown, and a new chat starts from the top.
+   */
+  function keepHomeAtTop() {
+    const thread = document.getElementById('thread');
+    const empty = document.getElementById('empty');
+    if (!thread || !empty) return;
+    let touched = 0;
+    const mark = () => { touched = Date.now(); };
+    for (const ev of ['touchstart', 'touchmove', 'wheel', 'pointerdown', 'keydown']) {
+      thread.addEventListener(ev, mark, { passive: true });
+    }
+    const homeShown = () => {
+      const messages = document.getElementById('messages');
+      return !empty.hidden && (!messages || !messages.children.length);
+    };
+    thread.addEventListener('scroll', () => {
+      // 2.5 s: a fling keeps scrolling for a while after the finger leaves the screen
+      if (thread.scrollTop > 0 && homeShown() && Date.now() - touched > 2500) thread.scrollTop = 0;
+    }, { passive: true });
+    new MutationObserver(() => { if (homeShown()) thread.scrollTop = 0; })
+      .observe(empty, { attributes: true, attributeFilter: ['hidden'] });
+    thread.scrollTop = 0;
+  }
+
   function build() {
     const empty = document.getElementById('empty');
     if (!empty || document.getElementById('mh-home')) return;
@@ -285,6 +312,7 @@
     home.append(hero, mic, hint, setup, recent, grid);
     empty.prepend(home);
     renderRecent();
+    keepHomeAtTop();
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', build);

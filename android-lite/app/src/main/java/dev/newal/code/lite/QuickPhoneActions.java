@@ -2,7 +2,6 @@ package dev.newal.code.lite;
 
 import android.Manifest;
 import android.accessibilityservice.AccessibilityService;
-import android.app.SearchManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
@@ -747,10 +746,14 @@ final class QuickPhoneActions {
         return ActionResult.ok("🗺️ فتحت الطريق إلى " + place + ".", "فتحت الطريق إلى " + place, true);
     }
 
+    /**
+     * The results page itself, in Chrome when it is there: a web-search intent asks which app to use on a phone with
+     * several, and Chrome's own search box then waits for another press.
+     */
     private static ActionResult webSearch(Context context, String query) {
-        Intent i = new Intent(Intent.ACTION_WEB_SEARCH).putExtra(SearchManager.QUERY, query);
-        if (i.resolveActivity(context.getPackageManager()) == null) {
-            i = new Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com/search?q=" + Uri.encode(query)));
+        Intent i = new Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com/search?q=" + Uri.encode(query)));
+        if (context.getPackageManager().getLaunchIntentForPackage("com.android.chrome") != null) {
+            i.setPackage("com.android.chrome");
         }
         start(context, i);
         return ActionResult.ok("🔎 بحثت عن: " + query, "بحثت عن " + query, true);

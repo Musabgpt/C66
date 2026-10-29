@@ -47,15 +47,12 @@
         <intent>
             <action android:name="android.speech.action.RECOGNIZE_SPEECH" />
         </intent>
-        <!-- The personal assistant (AssistantCommands): directions, web search, YouTube. -->
+        <!-- The personal assistant (AssistantCommands): directions and YouTube. -->
         <package android:name="com.google.android.youtube" />
         <package android:name="com.google.android.apps.maps" />
         <intent>
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="google.navigation" />
-        </intent>
-        <intent>
-            <action android:name="android.intent.action.WEB_SEARCH" />
         </intent>
     </queries>
 
