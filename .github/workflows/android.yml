@@ -307,6 +307,14 @@ jobs:
           fi
           printf 'SIGNING_CERT_SHA256=%s\n' "$actual"
           ls -lh MusabAI-Connectors.apk
+      # One development key for every run (kept in the Actions cache, never in Git), so each development APK installs
+      # over the previous one without uninstalling it and losing the app's data.
+      - name: Reuse the development signing key
+        if: steps.signing.outputs.mode == 'development'
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: musabai-development-debug-keystore-v1
       - name: Build development-only APK when release identity is unavailable
         if: steps.signing.outputs.mode == 'development'
         shell: bash
