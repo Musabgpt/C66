@@ -15,6 +15,9 @@
     <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
     <uses-permission android:name="com.termux.permission.RUN_COMMAND" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- "اتصل بأحمد" / "ابعث رسالة لأمي": the number of a saved contact. Asked for from the assistant's home screen;
+         without it, a call or message to a number still works. Nothing is sent: the dialer or messages app opens. -->
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
     <!-- GGUF files the user already has (Download, Documents...): Android 11 and up ask for "All files access",
          older Android for the storage permission. Only when the user turns it on from the Models page. -->
     <uses-permission
@@ -43,6 +46,16 @@
         <!-- The microphone button: the phone's speech recognizer. -->
         <intent>
             <action android:name="android.speech.action.RECOGNIZE_SPEECH" />
+        </intent>
+        <!-- The personal assistant (AssistantCommands): directions, web search, YouTube. -->
+        <package android:name="com.google.android.youtube" />
+        <package android:name="com.google.android.apps.maps" />
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="google.navigation" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.WEB_SEARCH" />
         </intent>
     </queries>
 

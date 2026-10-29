@@ -1,18 +1,29 @@
 package dev.newal.code.lite;
 
+import android.Manifest;
 import android.accessibilityservice.AccessibilityService;
+import android.app.SearchManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
+import android.database.Cursor;
 import android.hardware.camera2.CameraCharacteristics;
 import android.hardware.camera2.CameraManager;
 import android.media.AudioManager;
+import android.net.Uri;
 import android.os.BatteryManager;
+import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
+import android.provider.AlarmClock;
+import android.provider.CalendarContract;
+import android.provider.ContactsContract;
 import android.provider.Settings;
 
 import java.text.SimpleDateFormat;
+import java.util.Calendar;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
@@ -280,6 +291,14 @@ final class QuickPhoneActions {
         String normalized = normalizeCommand(rawPhrase);
         String f = TextFold.fold(normalized);
         if (f.isEmpty()) return ActionResult.notHandled();
+
+        // 0. Personal-assistant requests (alarm, timer, reminder, call, message, directions, search). Before the
+        // compound check: a message or a reminder says "و" inside what it carries ("قله تعال وجيب خبز").
+        AssistantCommands.Command assistant = AssistantCommands.parse(normalized);
+        if (assistant != null) {
+            ActionResult done = runAssistant(context, assistant);
+            if (done.handled) return done;
+        }
 
         // Do not intercept multi-step compound instructions; let the full agent execute them.
         if (isCompoundTask(f)) {
@@ -551,6 +570,210 @@ final class QuickPhoneActions {
         } catch (Exception e) {
             return ActionResult.notHandled();
         }
+    }
+
+    // ------------------------------------------------------------------ personal assistant
+
+    static ActionResult runAssistant(Context context, AssistantCommands.Command c) {
+        try {
+            switch (c.kind) {
+                case ALARM: return setAlarm(context, c.hour, c.minute, c.text);
+                case TIMER: return setTimer(context, c.seconds, c.text);
+                case REMINDER: return remind(context, c);
+                case CALL: return call(context, c);
+                case SMS: return sms(context, c);
+                case WHATSAPP: return whatsapp(context, c);
+                case NAVIGATE: return navigate(context, c.target);
+                case WEB_SEARCH: return webSearch(context, c.text);
+                case YOUTUBE: return youtube(context, c.text);
+                case SCREENSHOT: return globalAction(context, 9 /* GLOBAL_ACTION_TAKE_SCREENSHOT */, "📸 أخذت لقطة شاشة.", "أخذت لقطة شاشة.");
+                case LOCK: return globalAction(context, 8 /* GLOBAL_ACTION_LOCK_SCREEN */, "🔒 قفلت الشاشة.", "قفلت الشاشة.");
+                default: return ActionResult.notHandled();
+            }
+        } catch (Exception e) {
+            // no app on this phone takes the request (no clock app, no maps): the agent can still try another way
+            return ActionResult.notHandled();
+        }
+    }
+
+    private static void start(Context context, Intent intent) {
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        context.startActivity(intent);
+    }
+
+    private static ActionResult setAlarm(Context context, int hour, int minute, String label) {
+        Intent i = new Intent(AlarmClock.ACTION_SET_ALARM)
+                .putExtra(AlarmClock.EXTRA_HOUR, hour)
+                .putExtra(AlarmClock.EXTRA_MINUTES, minute)
+                .putExtra(AlarmClock.EXTRA_SKIP_UI, true)
+                .putExtra(AlarmClock.EXTRA_MESSAGE, label == null || label.isEmpty() ? "MusabAI" : label);
+        start(context, i);
+        String when = AssistantCommands.clockText(hour, minute, true);
+        String what = label == null || label.isEmpty() ? "" : " (" + label + ")";
+        return ActionResult.ok("⏰ ضبطت منبه الساعة " + when + what + ".", "ضبطت منبه الساعة " + when, false);
+    }
+
+    private static ActionResult setTimer(Context context, int seconds, String label) {
+        Intent i = new Intent(AlarmClock.ACTION_SET_TIMER)
+                .putExtra(AlarmClock.EXTRA_LENGTH, seconds)
+                .putExtra(AlarmClock.EXTRA_SKIP_UI, true);
+        if (label != null && !label.isEmpty()) i.putExtra(AlarmClock.EXTRA_MESSAGE, label);
+        start(context, i);
+        String len = AssistantCommands.durationText(seconds);
+        if (label != null && !label.isEmpty()) {
+            return ActionResult.ok("⏳ رح ذكرك بعد " + len + ": " + label, "رح ذكرك بعد " + len, false);
+        }
+        return ActionResult.ok("⏳ شغلت مؤقت " + len + ".", "شغلت مؤقت " + len, false);
+    }
+
+    /**
+     * "In 10 minutes": a labelled timer. "At 9 tonight": a labelled alarm. Another day, or no time said: a calendar
+     * event filled in for the person to save (the calendar app keeps it and reminds them).
+     */
+    private static ActionResult remind(Context context, AssistantCommands.Command c) {
+        if (c.seconds > 0) return setTimer(context, c.seconds, c.text);
+        if (c.hour >= 0 && c.dayOffset == 0) return setAlarm(context, c.hour, c.minute, c.text);
+        Calendar when = Calendar.getInstance();
+        when.add(Calendar.DAY_OF_YEAR, c.dayOffset);
+        if (c.hour >= 0) {
+            when.set(Calendar.HOUR_OF_DAY, c.hour);
+            when.set(Calendar.MINUTE, c.minute);
+        } else if (c.dayOffset > 0) {
+            when.set(Calendar.HOUR_OF_DAY, 9);
+            when.set(Calendar.MINUTE, 0);
+        } else {
+            when.add(Calendar.HOUR_OF_DAY, 1);
+            when.set(Calendar.MINUTE, 0);
+        }
+        when.set(Calendar.SECOND, 0);
+        long begin = when.getTimeInMillis();
+        Intent i = new Intent(Intent.ACTION_INSERT)
+                .setData(CalendarContract.Events.CONTENT_URI)
+                .putExtra(CalendarContract.Events.TITLE, c.text)
+                .putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, begin)
+                .putExtra(CalendarContract.EXTRA_EVENT_END_TIME, begin + 30 * 60 * 1000L)
+                .putExtra(CalendarContract.Events.HAS_ALARM, 1);
+        start(context, i);
+        String day = c.dayOffset == 1 ? "بكرا" : c.dayOffset == 2 ? "بعد بكرا" : "اليوم";
+        String time = AssistantCommands.clockText(when.get(Calendar.HOUR_OF_DAY), when.get(Calendar.MINUTE), true);
+        return ActionResult.ok("📅 جهزت تذكير «" + c.text + "» " + day + " " + time + " — اضغط حفظ بالتقويم.",
+                "جهزت التذكير، اضغط حفظ", true);
+    }
+
+    /** The number to use: as said, or the phone number of the contact with that name (when contacts may be read). */
+    private static String numberFor(Context context, String target, String alt) {
+        if (target == null || target.isEmpty()) return null;
+        if (target.matches("\\+?\\d{3,15}")) return target;
+        if (context.checkSelfPermission(Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
+            return null;
+        }
+        for (String name : new String[] {target, alt}) {
+            if (name == null || name.isEmpty()) continue;
+            String found = lookupContact(context, name);
+            if (found != null) return found;
+        }
+        return null;
+    }
+
+    private static String lookupContact(Context context, String name) {
+        String wanted = TextFold.fold(name);
+        String best = null;
+        int bestScore = 0;
+        try (Cursor cur = context.getContentResolver().query(
+                ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+                new String[] {ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME, ContactsContract.CommonDataKinds.Phone.NUMBER},
+                null, null, null)) {
+            if (cur == null) return null;
+            while (cur.moveToNext()) {
+                String display = TextFold.fold(cur.getString(0));
+                String number = cur.getString(1);
+                if (display.isEmpty() || number == null) continue;
+                int score = display.equals(wanted) ? 100
+                        : display.startsWith(wanted + " ") ? 80
+                        : (" " + display + " ").contains(" " + wanted + " ") ? 70
+                        : wanted.length() >= 3 && display.contains(wanted) ? 40 : 0;
+                if (score > bestScore) {
+                    bestScore = score;
+                    best = number;
+                }
+            }
+        } catch (Exception ignored) {
+            return null;
+        }
+        return best == null ? null : AssistantCommands.phoneDigits(best);
+    }
+
+    private static ActionResult call(Context context, AssistantCommands.Command c) {
+        String number = numberFor(context, c.target, c.targetAlt);
+        if (number == null) return ActionResult.notHandled();
+        start(context, new Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + Uri.encode(number))));
+        String who = c.target.matches("\\+?\\d{3,15}") ? number : (c.targetAlt.isEmpty() ? c.target : c.targetAlt);
+        return ActionResult.ok("📞 جهزت الاتصال بـ " + who + " — اضغط زر الاتصال.", "جهزت الاتصال، اضغط اتصال", true);
+    }
+
+    private static ActionResult sms(Context context, AssistantCommands.Command c) {
+        String number = numberFor(context, c.target, c.targetAlt);
+        if (number == null) return ActionResult.notHandled();
+        Intent i = new Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:" + Uri.encode(number)));
+        if (!c.text.isEmpty()) i.putExtra("sms_body", c.text);
+        start(context, i);
+        return ActionResult.ok("💬 كتبت الرسالة — راجعها واضغط إرسال.", "كتبت الرسالة، اضغط إرسال", true);
+    }
+
+    /** WhatsApp needs the number with its country code: a saved contact usually has it, "07..." alone does not. */
+    private static ActionResult whatsapp(Context context, AssistantCommands.Command c) {
+        String number = numberFor(context, c.target, c.targetAlt);
+        if (number == null) return ActionResult.notHandled();
+        String digits = number.startsWith("+") ? number.substring(1) : number.startsWith("00") ? number.substring(2) : null;
+        if (digits == null) return ActionResult.notHandled();
+        Intent i = new Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/" + digits
+                + (c.text.isEmpty() ? "" : "?text=" + Uri.encode(c.text))));
+        for (String pkg : new String[] {"com.whatsapp", "com.whatsapp.w4b"}) {
+            if (context.getPackageManager().getLaunchIntentForPackage(pkg) != null) {
+                i.setPackage(pkg);
+                break;
+            }
+        }
+        start(context, i);
+        return ActionResult.ok("💬 فتحت محادثة واتساب وكتبت الرسالة — اضغط إرسال.", "جهزت رسالة الواتساب", true);
+    }
+
+    private static ActionResult navigate(Context context, String place) {
+        Intent nav = new Intent(Intent.ACTION_VIEW, Uri.parse("google.navigation:q=" + Uri.encode(place)));
+        if (nav.resolveActivity(context.getPackageManager()) == null) {
+            nav = new Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=" + Uri.encode(place)));
+        }
+        start(context, nav);
+        return ActionResult.ok("🗺️ فتحت الطريق إلى " + place + ".", "فتحت الطريق إلى " + place, true);
+    }
+
+    private static ActionResult webSearch(Context context, String query) {
+        Intent i = new Intent(Intent.ACTION_WEB_SEARCH).putExtra(SearchManager.QUERY, query);
+        if (i.resolveActivity(context.getPackageManager()) == null) {
+            i = new Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com/search?q=" + Uri.encode(query)));
+        }
+        start(context, i);
+        return ActionResult.ok("🔎 بحثت عن: " + query, "بحثت عن " + query, true);
+    }
+
+    private static ActionResult youtube(Context context, String query) {
+        Intent i = new Intent(Intent.ACTION_VIEW,
+                Uri.parse("https://www.youtube.com/results?search_query=" + Uri.encode(query)));
+        if (context.getPackageManager().getLaunchIntentForPackage("com.google.android.youtube") != null) {
+            i.setPackage("com.google.android.youtube");
+        }
+        start(context, i);
+        return ActionResult.ok("▶️ فتحت يوتيوب على: " + query, "فتحت يوتيوب على " + query, true);
+    }
+
+    /** A screenshot waits for the floating panel to fold away, so it is not in the picture. */
+    private static ActionResult globalAction(Context context, int action, String display, String spoken) {
+        PhoneControlService pcs = PhoneControlService.on;
+        if (pcs == null || Build.VERSION.SDK_INT < 28) {
+            return ActionResult.ok("⚠️ يلزم تفعيل إمكانية الوصول لـ MusabAI أولاً.", "يلزم تفعيل إمكانية الوصول.", false);
+        }
+        new Handler(Looper.getMainLooper()).postDelayed(() -> pcs.performGlobalAction(action), 700);
+        return ActionResult.ok(display, spoken, true);
     }
 
     private static ActionResult openSettingsIntent(Context context, String action, String label) {

@@ -85,11 +85,41 @@ final class WebBridge {
             o.put("microphone", act.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)
                     == PackageManager.PERMISSION_GRANTED);
             o.put("files", Access.files(act));
+            o.put("contacts", act.checkSelfPermission(android.Manifest.permission.READ_CONTACTS)
+                    == PackageManager.PERMISSION_GRANTED);
             o.put("notifications", Build.VERSION.SDK_INT < 33 || act.checkSelfPermission(
                     "android.permission.POST_NOTIFICATIONS") == PackageManager.PERMISSION_GRANTED);
         } catch (Exception ignored) {
         }
         return o.toString();
+    }
+
+    /**
+     * A one-step request done on the phone itself, in milliseconds and with no model: an alarm, a timer, a reminder,
+     * a call, a message, directions, a search, the torch, the volume, opening an app. {"handled": false} leaves it to
+     * the agent. Nothing is sent or dialled without the person: calls and messages open ready for them to press.
+     */
+    @JavascriptInterface
+    public String quick(String phrase) {
+        JSONObject o = new JSONObject();
+        try {
+            QuickPhoneActions.ActionResult r = Phone.onMain(() -> QuickPhoneActions.executeQuickAction(act, phrase));
+            o.put("handled", r.handled);
+            o.put("message", r.displayMessage);
+            o.put("spoken", r.spokenMessage);
+        } catch (Exception e) {
+            try {
+                o.put("handled", false);
+            } catch (Exception ignored) {
+            }
+        }
+        return o.toString();
+    }
+
+    /** Contacts, for "اتصل بأحمد": Android's own permission prompt. */
+    @JavascriptInterface
+    public void allowContacts() {
+        act.runOnUiThread(() -> act.requestPermissions(new String[] {android.Manifest.permission.READ_CONTACTS}, 41));
     }
 
     /** Restart the native setup wizard from the app's connections screen. */

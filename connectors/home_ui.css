@@ -1,0 +1,177 @@
+/* MusabAI on the phone: the personal-assistant home (home_ui.js) in place of the empty chat. Only on the phone. */
+html.mh-phone #empty {
+  justify-content: flex-start;
+  padding: 0 0 12px;
+  max-width: 640px;
+  margin: 0 auto;
+  width: 100%;
+}
+html.mh-phone #empty > :not(#mh-home) { display: none; }
+
+.mh-home {
+  --mh-accent: var(--accent, #10a37f);
+  --mh-accent-2: #3b82f6;
+  --mh-card: var(--bg-soft);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 18px 16px 8px;
+  width: 100%;
+  box-sizing: border-box;
+  text-align: start;
+  animation: mh-in .35s ease-out both;
+}
+@keyframes mh-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+.mh-hero {
+  position: relative;
+  overflow: hidden;
+  border-radius: 24px;
+  padding: 22px 20px 20px;
+  color: #fff;
+  background:
+    radial-gradient(120% 140% at 100% 0%, rgba(255, 255, 255, .22) 0, transparent 55%),
+    linear-gradient(135deg, var(--mh-accent) 0%, #0e8f8a 45%, var(--mh-accent-2) 100%);
+  box-shadow: 0 14px 34px rgba(16, 163, 127, .28);
+}
+.mh-greet { font-size: 26px; font-weight: 700; letter-spacing: -.01em; line-height: 1.2; }
+.mh-date { margin-top: 6px; font-size: 14px; opacity: .9; }
+
+.mh-mic {
+  position: relative;
+  align-self: center;
+  width: 96px;
+  height: 96px;
+  margin-top: -2px;
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+  color: #fff;
+  background: linear-gradient(145deg, var(--mh-accent), var(--mh-accent-2));
+  box-shadow: 0 10px 26px rgba(59, 130, 246, .35), inset 0 -3px 8px rgba(0, 0, 0, .12);
+  transition: transform .12s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.mh-mic:active { transform: scale(.94); }
+.mh-mic-icon { position: relative; z-index: 1; font-size: 38px; line-height: 96px; }
+.mh-mic-ring {
+  position: absolute;
+  inset: -8px;
+  border-radius: 50%;
+  border: 2px solid var(--mh-accent);
+  opacity: 0;
+}
+.mh-mic.listening .mh-mic-ring { animation: mh-pulse 1.2s ease-out infinite; }
+.mh-mic.listening { background: linear-gradient(145deg, #ef4444, #f97316); }
+@keyframes mh-pulse { 0% { opacity: .9; transform: scale(.92); } 100% { opacity: 0; transform: scale(1.35); } }
+
+.mh-hint {
+  margin: -6px 8px 0;
+  text-align: center;
+  color: var(--fg-soft);
+  font-size: 13px;
+  line-height: 1.6;
+  unicode-bidi: plaintext;
+}
+
+.mh-setup { display: flex; flex-direction: column; gap: 8px; }
+.mh-setup[hidden] { display: none; }
+.mh-setup-item {
+  text-align: start;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px dashed var(--warn, #b7791f);
+  background: color-mix(in srgb, var(--warn, #b7791f) 9%, transparent);
+  color: var(--fg);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+.mh-setup-item::before { content: "⚡ "; }
+
+.mh-section-title {
+  margin: 0 4px 8px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: .02em;
+  color: var(--fg-faint);
+  text-transform: uppercase;
+}
+.mh-groups { display: flex; flex-direction: column; gap: 16px; }
+.mh-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.mh-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 82px;
+  padding: 10px 4px;
+  border-radius: 18px;
+  border: 1px solid var(--border);
+  background: var(--mh-card);
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+  transition: transform .1s ease, border-color .15s ease, background .15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.mh-tile:active { transform: scale(.95); border-color: var(--mh-accent); }
+.mh-tile-icon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 13px;
+  font-size: 22px;
+  background: color-mix(in srgb, var(--mh-accent) 12%, var(--bg));
+}
+.mh-tile-label { font-size: 12.5px; line-height: 1.2; text-align: center; color: var(--fg-soft); }
+
+.mh-recent[hidden] { display: none; }
+.mh-chips { display: flex; gap: 8px; overflow-x: auto; padding: 0 2px 4px; scrollbar-width: none; }
+.mh-chips::-webkit-scrollbar { display: none; }
+.mh-chip {
+  flex: none;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  unicode-bidi: plaintext;
+}
+
+.mh-toast {
+  position: fixed;
+  inset-inline: 16px;
+  bottom: 96px;
+  z-index: 60;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: var(--fg);
+  color: var(--bg);
+  font-size: 15px;
+  line-height: 1.5;
+  box-shadow: var(--shadow);
+  unicode-bidi: plaintext;
+  opacity: 0;
+  transform: translateY(12px);
+  pointer-events: none;
+  transition: opacity .2s ease, transform .2s ease;
+}
+.mh-toast.show { opacity: 1; transform: none; pointer-events: auto; }
+
+@media (max-width: 360px) {
+  .mh-tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .mh-greet { font-size: 23px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mh-home, .mh-mic.listening .mh-mic-ring { animation: none; }
+}
