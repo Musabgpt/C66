@@ -118,6 +118,9 @@ final class Phone {
                 return clipboard(ctx, a.has("text") ? a.optString("text") : null);
             case "notify":
                 return notify(ctx, a.optString("title", "NewAl Code"), a.optString("text"), a.optBoolean("only_background", false));
+            case "task_alarm":
+                TaskAlarms.schedule(ctx);
+                return ok("alarm set for the next scheduled task");
             case "share":
                 return start(ctx, Intent.createChooser(new Intent(Intent.ACTION_SEND).setType("text/plain")
                         .putExtra(Intent.EXTRA_TEXT, a.optString("text")), null), "the share sheet is open");

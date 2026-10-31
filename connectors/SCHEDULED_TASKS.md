@@ -11,10 +11,10 @@ The **المهام المجدولة** page creates, lists, pauses, resumes, runs
 
 ## Timings and background limitations
 
-- Use timezone-aware ISO-8601 first-run date (when) or relative delay_minutes.
+- Use an ISO-8601 first-run date (when) or relative delay_minutes. The app passes the phone's time zone to the engine (TZ), each request tells the model the local time and UTC offset, and a time without offset is the phone's local time.
 - Recurrence is repeat_minutes (60 to 525600), not an exact calendar schedule. Every 1440 minutes is a 24-hour interval; it may shift across daylight saving transitions.
-- The scheduler wakes approximately every ten seconds while MusabAI's existing Android foreground Python service is alive. Android may delay, kill, force-stop or restrict background execution; this is NOT a guaranteed exact-time alarm. The first version does not use AlarmManager or cloud infrastructure.
-- If the service stops, task state stays in the app-private SQLite file. Bring the app back to resume. Do not rely on this for critical medical or safety reminders.
+- The scheduler wakes approximately every ten seconds while MusabAI's existing Android foreground Python service is alive. After every change to the tasks the engine asks the app for an exact alarm at the next due time (TaskAlarms.java, USE_EXACT_ALARM): when Android has stopped the app meanwhile, the alarm starts the engine's service and the task runs. The alarm is set again after the phone restarts or the app is updated. If Android refuses to start the service from the background, a notification lists what is due.
+- A force-stopped app gets no alarms until it is opened; task state stays in the app-private SQLite file. Do not rely on this for critical medical or safety reminders.
 - Overdue repeat periods are skipped (no catch-up burst). Notifications use the existing authenticated native Android phone API and require notification permission.
 - AI tasks run serially in full-auto by default. This enables already-granted phone, shell, GitHub and file tools to actually execute authorized operations. Android runtime permissions and safeguards still apply; full-auto cannot bypass Accessibility, app installation approvals or system restrictions. Irreversible actions outside the user's instructions still need explicit approval. They use the configured model, not a guaranteed cloud agent.
 - Older saved agent/watch tasks made by the previous read-only release are migrated to full-auto automatically in this update, as explicitly requested by the user. You can pause them or choose read-only for new tasks.
@@ -34,5 +34,4 @@ The **المهام المجدولة** page creates, lists, pauses, resumes, runs
 - connectors/apply_scheduled_tasks.py: install into the pinned Python engine without changing its upstream repository.
 - connectors/scheduled_tasks_tests.py: unit and integration tests.
 - Android workflow: Python tests, JS syntax check, original regression suite and development-signed APK.
-
-Future work could add AlarmManager and boot recovery for stronger offline reminders under Android Doze constraints; these are not claimed here.
+- android-lite/.../TaskAlarms.java and TaskAlarmReceiver.java: the exact alarm for the next due task, read from the tasks' database, and its renewal after a restart or an update.

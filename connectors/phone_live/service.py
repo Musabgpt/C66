@@ -62,6 +62,7 @@ class Service:
         self.listeners = []
         self.approvals = {}
         self.lock = threading.RLock()
+        self.changed = threading.Condition()       # notified on every event (wait_events)
         self.plan_turn = set()
         from . import fleet
         fleet.SERVICE = self
@@ -87,6 +88,26 @@ class Service:
                 q.put_nowait(ev)
             except queue.Full:
                 pass
+        with self.changed:
+            self.changed.notify_all()
+
+    def wait_events(self, sid, after, wait=0.0):
+        """A thread's events after the first `after` of them (counted from its start: the session keeps only its last
+        few thousand), waiting up to `wait` seconds for one while the thread works. The floating assistant follows a
+        turn with this instead of reading the whole thread every 750 ms. after < 0 only asks where the thread is."""
+        s = self.get(sid)
+        deadline = time.monotonic() + max(0.0, min(float(wait or 0), 25.0))
+        with self.changed:
+            while True:
+                total = getattr(s, "event_total", len(s.events))
+                start = int(after) - (total - len(s.events))
+                fresh = list(s.events[max(0, start):]) if 0 <= after < total else []
+                busy = self.busy(sid)
+                left = deadline - time.monotonic()
+                if fresh or not busy or left <= 0 or after < 0:
+                    return {"events": fresh, "next": total, "busy": busy, "model": s.model}
+                # the thread ending sends no event of its own: look again at least every quarter second
+                self.changed.wait(min(left, 0.25))
 
     # ------------------------------------------------------------ sessions
 
@@ -257,8 +278,9 @@ class Service:
         t = threading.Thread(target=self._turn, args=(sid, text, images), daemon=True)
         with self.lock:
             self.threads[sid] = t
+        cursor = getattr(s, "event_total", len(s.events))     # this turn's events follow (wait_events)
         t.start()
-        return {"started": True, "session": sid}
+        return {"started": True, "session": sid, "cursor": cursor}
 
     def start(self, sid, target, out=None):
         with self.lock:
@@ -315,8 +337,16 @@ class Service:
         try:
             a.run(text, images=images)
         except Exception as e:  # noqa: BLE001 - reported to the interface
-            self.broadcast({"type": "error", "session": sid, "message": "%s: %s" % (type(e).__name__, e)})
-            self.broadcast({"type": "turn_end", "session": sid, "answer": "", "error": str(e), "seconds": 0})
+            # kept in the thread too: an interface that reads the thread (the floating assistant) then says what
+            # went wrong instead of announcing a success
+            for ev in ({"type": "error", "session": sid, "message": "%s: %s" % (type(e).__name__, e)},
+                       {"type": "turn_end", "session": sid, "answer": "", "error": str(e), "seconds": 0}):
+                ev["t"] = round(time.time(), 3)
+                try:
+                    s.add_event(ev)
+                except Exception:  # noqa: BLE001 - the transcript is best effort here
+                    pass
+                self.broadcast(ev)
         finally:
             if plan:
                 s.mode = mode

@@ -1,5 +1,40 @@
 # C66 performance changes
 
+## Assistant speed and background tasks (2026-10-31)
+
+Measured on the phone itself (Galaxy A16, Android 16) with the app's own Python 3.14, running the engine from build 84
+and from this change side by side in a temporary folder.
+
+| What | Before | After |
+| --- | --- | --- |
+| A real model call (anonymous Kilo gateway, 5 calls, two rounds) | median 1054 / 1046 ms | median 834 / 839 ms |
+| Engine ready after an install or update (first start) | 1.8-2.6 s | 0.38 s |
+| Floating assistant noticing the answer | up to 750 ms after it, reading the whole thread each time | as soon as the turn ends, only the new events |
+
+- **Connections reused** (connectors/http_pool.py, apply_ext_99_zspeed.py). Every model call built a TLS context and
+  read the CA list (88 ms) and opened a new connection (DNS, TCP and TLS, 130-170 ms). Now one context is kept and a
+  response read to its end leaves its connection for the next call to the same host. A connection the server has
+  closed is dropped or, if it closed as the request went out, the request is sent once more on a new one.
+- **Bytecode shipped** (connectors/ship_bytecode.py, hot_stdlib.txt). Checked-hash .pyc for the whole engine and for
+  the 128 standard-library modules a start and a first request import, made with Python 3.14 in CI. The APK grows by
+  about 2 MB.
+- **Floating assistant follows a turn through `GET /api/sessions/<id>/events?after=N&wait=S`**
+  (Service.wait_events, apply_ext_99_zz_assistant.py). It used to read up to 1500 events every 750 ms. On a long
+  thread a read passed 500 KB and failed, and the assistant then said it could not reach the engine. After 30 idle
+  minutes the assistant also opens a fresh thread, so the model reads a short conversation.
+- **Honest failures.** A turn that ended in an engine error was announced by the bubble as "finished successfully".
+  The error now reaches the thread and is spoken.
+- **Local time.** Python on Android has no time zone and counted in UTC. The app now passes the phone's zone (TZ), each
+  request carries "Local time: ... (UTC+hh:mm, zone)", and a reminder time without offset is local time.
+- **Scheduled tasks run when Android has stopped the app.** An exact alarm for the next due task starts the engine
+  (TaskAlarms.java), and it is set again after a restart or an update. Before, tasks waited until the app was opened.
+
+Tests: connectors/http_pool_tests.py (9), assistant_events_tests.py (9), and new cases in scheduled_tasks_tests.py.
+On the phone, the CI list of engine suites shows the same 16 environment failures (no git, bash or Termux in the
+temporary folder) before and after this change. 475 tests ran instead of 453.
+
+## Earlier changes
+
 Source: Musabgpt/NewAl-Cloud at `4e8fd61a133502e7d339f9d9404585168451bd15`.
 
 ## Changes

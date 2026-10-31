@@ -7,6 +7,7 @@ import tempfile
 import threading
 import time
 import unittest
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from types import SimpleNamespace
 from unittest import mock
 
@@ -57,12 +58,53 @@ class ScheduledTaskTests(unittest.TestCase):
                        {"when": "1990-01-01T00:00:00+00:00"},
                        {"permission_mode": "bypass-security"}):
             with self.subTest(kwargs=kwargs):
-                with self.assertRaises(ValueError):
+                with mock.patch.dict(os.environ), self.assertRaises(ValueError):
+                    os.environ.pop("TZ", None)          # no phone zone passed: a time without offset is refused
                     st.create("Test", "Test", **kwargs)
         when = (dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=2)).isoformat()
         item = st.create("At fixed UTC time", "Reminder", when=when)
         self.assertAlmostEqual(item["next_run"],
                                dt.datetime.fromisoformat(when).timestamp(), delta=2)
+
+    def test_changes_ask_the_app_to_set_its_alarm(self):
+        posts = []
+
+        class Phone(BaseHTTPRequestHandler):
+            def do_POST(self):
+                posts.append(json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
+                self.send_response(200)
+                self.send_header("Content-Length", "11")
+                self.end_headers()
+                self.wfile.write(b'{"ok":true}')
+
+            def log_message(self, *a):
+                pass
+
+        server = HTTPServer(("127.0.0.1", 0), Phone)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        with mock.patch.dict(os.environ, {"NEWAL_PHONE_KEY": "k", "NEWAL_PHONE_PORT": str(server.server_address[1])}):
+            row = st.create("Water", "Drink water", delay_minutes=5)
+            st.manage(row["id"], "pause")
+            deadline = time.time() + 5
+            while len(posts) < 2 and time.time() < deadline:
+                time.sleep(0.05)
+        self.assertEqual(posts, [{"action": "task_alarm"}] * 2)
+
+    @unittest.skipUnless(hasattr(time, "tzset"), "needs time.tzset")
+    def test_time_without_offset_is_the_phones_local_time(self):
+        with mock.patch.dict(os.environ, {"TZ": "Asia/Amman"}):
+            time.tzset()
+            try:
+                local = dt.datetime.now() + dt.timedelta(days=1)
+                item = st.create("Local", "Reminder", when=local.strftime("%Y-%m-%dT%H:%M:00"))
+                expected = dt.datetime(local.year, local.month, local.day, local.hour, local.minute,
+                                       tzinfo=dt.timezone(dt.timedelta(hours=3))).timestamp()
+                self.assertAlmostEqual(item["next_run"], expected, delta=1)
+            finally:
+                os.environ.pop("TZ", None)
+        time.tzset()
 
     def test_user_task_cap_and_no_command_injection(self):
         with self.assertRaises(ValueError):

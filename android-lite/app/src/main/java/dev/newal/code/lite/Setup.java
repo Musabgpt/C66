@@ -146,6 +146,9 @@ final class Setup {
         env.put("NEWAL_UPDATE_COMPAT", UPDATE_COMPAT);
         env.put("NEWAL_PACKAGED_ENGINE", app.getPath());
         env.put("PYTHONUNBUFFERED", "1");
+        // Python on Android has no time zone and counts in UTC; with the phone's zone it tells the model the real
+        // local time (connectors/clock.py) and reads a reminder's "9:00" as 9:00 here.
+        env.put("TZ", java.util.TimeZone.getDefault().getID());
         env.put("NEWAL_CODE_HOME", new File(home, ".newal-code").getPath());
         env.put("NEWAL_LLAMA_SERVER", llamaServer());
         File busyboxLibrary = new File(libDir, "libbusybox.so");
