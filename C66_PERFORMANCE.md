@@ -28,10 +28,19 @@ and from this change side by side in a temporary folder.
   request carries "Local time: ... (UTC+hh:mm, zone)", and a reminder time without offset is local time.
 - **Scheduled tasks run when Android has stopped the app.** An exact alarm for the next due task starts the engine
   (TaskAlarms.java), and it is set again after a restart or an update. Before, tasks waited until the app was opened.
+- **web_search answers the question asked** (connectors/websearch.py). Bing's feed, tried first, answered
+  "سعر الذهب اليوم في الأردن" with Chinese pages about SoundCloud (and Lidl's UK stores), and "weather Amman today"
+  with the weather in Derby. Because it returned something, DuckDuckGo was never asked. Now DuckDuckGo goes first and a
+  list is taken only when its results carry the query's words (Arabic letter forms folded, the article dropped).
+  Live on the phone, the gold question now gets three Jordanian gold-price pages.
+- **A weather tool** (connectors/weather.py, Open-Meteo, no key) gives the numbers for now, today and two more days,
+  in about 0.5 s. With no place it uses the phone's area. "عمان" without its shadda finds only villages in Iraq and
+  Yemen at the geocoder, so the phone's own city wins when its name without marks matches.
 
-Tests: connectors/http_pool_tests.py (9), assistant_events_tests.py (9), and new cases in scheduled_tasks_tests.py.
-On the phone, the CI list of engine suites shows the same 16 environment failures (no git, bash or Termux in the
-temporary folder) before and after this change. 475 tests ran instead of 453.
+Tests: connectors/http_pool_tests.py (9), assistant_events_tests.py (9), websearch_tests.py (11),
+weather_tests.py (7), and new cases in scheduled_tasks_tests.py. On the phone, the CI list of engine suites shows the
+same 16 environment failures before and after this change (no git, bash or Termux in the temporary folder), and the
+same 73 unclosed-resource warnings under `-X dev`.
 
 ## Earlier changes
 

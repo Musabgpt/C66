@@ -1272,6 +1272,9 @@ public final class FloatingAssistantService extends Service implements Recogniti
     private static String describeToolInArabic(String toolName) {
         if (toolName == null || toolName.isEmpty()) return "تنفيذ خطوة";
         String t = toolName.toLowerCase(Locale.ROOT);
+        if (t.equals("weather")) {
+            return "جلب حالة الطقس";
+        }
         if (t.contains("phone") || t.contains("screen") || t.contains("tap") || t.contains("accessibility")) {
             return "التحكم بشاشة الهاتف";
         }
