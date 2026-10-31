@@ -103,6 +103,7 @@ public class AgentService extends Service {
                 python = s.start();
                 error = "";
                 watch(python);
+                TaskAlarms.schedule(this);
             } catch (Exception e) {
                 error = String.valueOf(e);
                 Setup setup = new Setup(this);

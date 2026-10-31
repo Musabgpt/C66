@@ -14,6 +14,10 @@ import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.hardware.camera2.CameraCharacteristics;
 import android.hardware.camera2.CameraManager;
+import android.location.Address;
+import android.location.Geocoder;
+import android.location.Location;
+import android.location.LocationManager;
 import android.media.AudioManager;
 import android.net.Uri;
 import android.os.BatteryManager;
@@ -118,6 +122,11 @@ final class Phone {
                 return clipboard(ctx, a.has("text") ? a.optString("text") : null);
             case "notify":
                 return notify(ctx, a.optString("title", "NewAl Code"), a.optString("text"), a.optBoolean("only_background", false));
+            case "task_alarm":
+                TaskAlarms.schedule(ctx);
+                return ok("alarm set for the next scheduled task");
+            case "location":
+                return location(ctx);
             case "share":
                 return start(ctx, Intent.createChooser(new Intent(Intent.ACTION_SEND).setType("text/plain")
                         .putExtra(Intent.EXTRA_TEXT, a.optString("text")), null), "the share sheet is open");
@@ -336,6 +345,50 @@ final class Phone {
             CharSequence t = c.getItemAt(0).coerceToText(ctx);
             return ok(t == null ? "" : t.toString());
         });
+    }
+
+    /**
+     * The phone's last known approximate position, with its town when Android's geocoder knows it: what "the weather
+     * here" needs (connectors/weather.py). No GPS fix is started. Needs the approximate-location permission, which
+     * the assistant's home screen asks for.
+     */
+    private static JSONObject location(Context ctx) throws Exception {
+        if (ctx.checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION)
+                != PackageManager.PERMISSION_GRANTED) {
+            return PhoneServer.error("location not allowed: the user can allow MusabAI's approximate location "
+                    + "from the assistant's home screen");
+        }
+        LocationManager lm = ctx.getSystemService(LocationManager.class);
+        Location best = null;
+        for (String provider : lm.getProviders(true)) {
+            try {
+                Location l = lm.getLastKnownLocation(provider);
+                if (l != null && (best == null || l.getTime() > best.getTime())) best = l;
+            } catch (SecurityException | IllegalArgumentException ignored) {
+                // a provider this permission does not cover
+            }
+        }
+        if (best == null) return PhoneServer.error("no recent location on this phone");
+        JSONObject o = ok(String.format(Locale.ROOT, "%.3f,%.3f", best.getLatitude(), best.getLongitude()));
+        o.put("lat", best.getLatitude());
+        o.put("lon", best.getLongitude());
+        o.put("age_s", Math.max(0, (System.currentTimeMillis() - best.getTime()) / 1000));
+        try {
+            if (Geocoder.isPresent()) {
+                List<Address> found = new Geocoder(ctx, Locale.getDefault())
+                        .getFromLocation(best.getLatitude(), best.getLongitude(), 1);
+                if (found != null && !found.isEmpty()) {
+                    Address a = found.get(0);
+                    String town = a.getLocality() != null ? a.getLocality()
+                            : a.getSubAdminArea() != null ? a.getSubAdminArea() : a.getAdminArea();
+                    if (town != null) o.put("town", town);
+                    if (a.getCountryName() != null) o.put("country", a.getCountryName());
+                }
+            }
+        } catch (Exception ignored) {
+            // no geocoder service or no network: the position alone still gives the weather
+        }
+        return o;
     }
 
     private static JSONObject notify(Context ctx, String title, String text, boolean onlyBackground) throws Exception {

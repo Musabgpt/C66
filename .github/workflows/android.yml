@@ -1,7 +1,7 @@
 name: MusabAI — Android
 on:
   push:
-    branches: ["main", "c66-performance", "connectors-from-125", "feat/free-providers-mcp-router", "feat/mcp-registry-core-phase1", "feat/activepieces-mcp-oauth", "feat/browser-layer-phase2", "feat/search-crawl-phase3", "feat/document-engine-phase4", "feat/memory-rag-orchestration-phase5", "feat/execution-phase6", "feat/observability-phase7", "feat/task-checkpoints-phase8", "phase1/baseline-audit", "phase2/capability-aware-provider-router", "phase3/free-provider-health-failover", "phase4/task-supervisor-watchdog", "phase5/unified-runtime-manager", "phase6/termux-localhost-bridge", "phase7/mcp-manager-lifecycle", "phase8/musab-hub-live-state", "phase9/self-update-hot-reload", "phase10/final-validation", "fix/context-continuity-claude-workflow", "feat/claude-harness-core"]
+    branches: ["main", "feat/assistant-speed-background", "c66-performance", "connectors-from-125", "feat/free-providers-mcp-router", "feat/mcp-registry-core-phase1", "feat/activepieces-mcp-oauth", "feat/browser-layer-phase2", "feat/search-crawl-phase3", "feat/document-engine-phase4", "feat/memory-rag-orchestration-phase5", "feat/execution-phase6", "feat/observability-phase7", "feat/task-checkpoints-phase8", "phase1/baseline-audit", "phase2/capability-aware-provider-router", "phase3/free-provider-health-failover", "phase4/task-supervisor-watchdog", "phase5/unified-runtime-manager", "phase6/termux-localhost-bridge", "phase7/mcp-manager-lifecycle", "phase8/musab-hub-live-state", "phase9/self-update-hot-reload", "phase10/final-validation", "fix/context-continuity-claude-workflow", "feat/claude-harness-core"]
   pull_request:
     branches: ["main"]
   workflow_dispatch:
@@ -153,7 +153,7 @@ jobs:
         run: |
           python3 -m unittest discover -s connectors -p test_connectors.py -v
           python3 -m unittest discover -s connectors -p test_chat_shots.py -v
-          PYTHONPATH=desktop:/tmp/newal-pdf python3 -m unittest newal_code.document_tests newal_code.evolution_tests newal_code.addon_tests newal_code.memory_tests newal_code.autonomy_tests newal_code.prompt_tests newal_code.workbench_tests newal_code.mcp_config_tests newal_code.mcp_bundles_tests newal_code.mcp_registry_tests newal_code.browser_router_tests newal_code.search_router_tests newal_code.document_engine_tests newal_code.project_rag_tests newal_code.orchestrator_tests newal_code.execution_tests newal_code.runtime_manager_tests newal_code.termux_bridge_tests newal_code.git_workspace_tests newal_code.observability_tests newal_code.task_state_tests newal_code.task_supervisor_tests newal_code.provider_pool_tests newal_code.free_provider_adapters_tests newal_code.provider_keys_tests newal_code.automation_tests newal_code.auto_update_tests newal_code.managed_linux_tests newal_code.continuity_tests newal_code.tool_search_tests newal_code.tool_protocol_tests -v
+          PYTHONPATH=desktop:/tmp/newal-pdf python3 -m unittest newal_code.document_tests newal_code.evolution_tests newal_code.addon_tests newal_code.memory_tests newal_code.autonomy_tests newal_code.prompt_tests newal_code.workbench_tests newal_code.mcp_config_tests newal_code.mcp_bundles_tests newal_code.mcp_registry_tests newal_code.browser_router_tests newal_code.search_router_tests newal_code.document_engine_tests newal_code.project_rag_tests newal_code.orchestrator_tests newal_code.execution_tests newal_code.runtime_manager_tests newal_code.termux_bridge_tests newal_code.git_workspace_tests newal_code.observability_tests newal_code.task_state_tests newal_code.task_supervisor_tests newal_code.provider_pool_tests newal_code.free_provider_adapters_tests newal_code.provider_keys_tests newal_code.automation_tests newal_code.auto_update_tests newal_code.managed_linux_tests newal_code.continuity_tests newal_code.tool_search_tests newal_code.tool_protocol_tests newal_code.http_pool_tests newal_code.assistant_events_tests newal_code.websearch_tests newal_code.weather_tests -v
           python3 -m unittest discover -s desktop/tests -p test_newal_code.py -q
       - name: Phase 10 real npm MCP install and stdio validation (Linux host)
         env:
@@ -192,6 +192,17 @@ jobs:
         run: |
           python3 connectors/package_baseline.py baseline-action125/NewAl-Cloud-Action43.apk
           python3 connectors/verify_package.py android-lite/app/build/generated/newal-assets/newal_code.zip
+      # The phone runs Python 3.14: its bytecode is made by 3.14 (then 3.12 is the default again).
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Ship checked-hash bytecode (first start after an update 0.4 s instead of 1.8-2.6 s)
+        run: |
+          python3 connectors/ship_bytecode.py android-lite/app/build/generated/newal-assets
+          python3 connectors/verify_package.py android-lite/app/build/generated/newal-assets/newal_code.zip
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - name: Compile pinned BusyBox for Android (native libraries)
         shell: bash
         run: |

@@ -1,8 +1,9 @@
 """Persistent scheduled reminders, autonomous phone tasks and condition watches.
 
 Schedules are stored in the application's private SQLite database. The scheduler
-runs with MusabAI's foreground Python service; Android can delay or stop it, so
-this is best-effort scheduling (never promise exact delivery during force-stop).
+runs with MusabAI's foreground Python service; when Android has stopped it, an
+alarm for the next due task (TaskAlarms.java, kept up to date through _wake)
+starts it again. A force-stopped app gets no alarms until it is opened.
 """
 import datetime as dt
 from contextlib import contextmanager
@@ -72,14 +73,16 @@ def listing():
 
 
 def _at(when, delay_minutes, repeat_minutes):
-    # Absolute values need an explicit UTC offset, so the phone's local time
-    # is never silently mistaken for the server timezone.
+    # An absolute time without a UTC offset is the phone's local time only when the app has passed the phone's
+    # time zone (TZ, Setup.java); without it Python on Android counts in UTC, so such a time is refused.
     now = time.time()
     if when:
         stamp = str(when).strip().replace("Z", "+00:00")
         value = dt.datetime.fromisoformat(stamp)
         if value.tzinfo is None or value.utcoffset() is None:
-            raise ValueError("when must include timezone, e.g. 2026-11-01T09:00:00+00:00")
+            if not os.environ.get("TZ"):
+                raise ValueError("when must include timezone, e.g. 2026-11-01T09:00:00+00:00")
+            value = value.astimezone()           # naive: local time in the phone's zone
         due = value.timestamp()
     elif delay_minutes:
         due = now + max(1, int(delay_minutes)) * 60
@@ -126,10 +129,17 @@ def create(title, prompt, when="", delay_minutes=0, repeat_minutes=0,
                     last_run,last_result,attempts,session_id,root,permission_mode)
                    VALUES (:id,:title,:prompt,:kind,:created,:next_run,:repeat_seconds,:status,
                            :last_run,:last_result,:attempts,:session_id,:root,:permission_mode)""", task)
+    _wake()
     return task
 
 
 def manage(task_id, action):
+    result = _manage(task_id, action)
+    _wake()
+    return result
+
+
+def _manage(task_id, action):
     if not re.fullmatch(r"[0-9a-f]{16}", str(task_id)):
         raise ValueError("Invalid task ID")
     if action not in ("pause", "resume", "delete", "run"):
@@ -187,6 +197,7 @@ def _complete(row, result, session="", at=None, triggered=False):
                    "last_result=?, session_id=?, attempts=0 WHERE id=? AND status='running'",
                    ("active" if again else "done", next_run, now,
                     str(result or "")[:4000], session, row["id"]))
+    _wake()
 
 
 def _failure(row, error):
@@ -196,6 +207,28 @@ def _failure(row, error):
                    "last_result=?, attempts=? WHERE id=? AND status='running'",
                    ("paused" if n >= 3 else "active", time.time() + 60 * n,
                     time.time(), "Failed: " + str(error)[:2500], n, row["id"]))
+    _wake()
+
+
+def _wake():
+    """Asks the Android app to set its alarm for the next due task (TaskAlarms.java): a task then runs at its time
+    even when Android has stopped the app meanwhile. Best effort, in the background; an older app has no such action."""
+    key = os.environ.get("NEWAL_PHONE_KEY") or ""
+    if not key:
+        return
+
+    def post():
+        try:
+            port = int(os.environ.get("NEWAL_PHONE_PORT") or 8796)
+            req = urllib.request.Request("http://127.0.0.1:%d/phone" % port, data=b'{"action": "task_alarm"}',
+                                         headers={"X-NewAl-Key": key, "Content-Type": "application/json"},
+                                         method="POST")
+            with urllib.request.urlopen(req, timeout=10) as response:
+                response.read(2000)
+        except Exception:  # noqa: BLE001 - the ten-second loop still runs tasks while the app is alive
+            pass
+
+    threading.Thread(target=post, name="musabai-task-alarm", daemon=True).start()
 
 
 def _notify(title, body):
@@ -274,6 +307,7 @@ def recover_incomplete():
     with _connect() as db:
         db.execute("UPDATE scheduled_tasks SET status='active', next_run=? "
                    "WHERE status='running'", (time.time() + 10,))
+    _wake()
 
 
 def start(service):
@@ -334,7 +368,8 @@ def route(handler, method, path, body=None):
             "watch checks a condition and performs the authorized task on first trigger, then stops. "
             "For a simple reminder use kind=reminder (only posts a notification); for a phone action "
             "such as setting an alarm use kind=agent. Provide timezone-aware when or delay_minutes; "
-            "repeat_minutes >=60 for recurrence. The app service must stay running; Android may delay delivery.",
+            "repeat_minutes >=60 for recurrence. An Android alarm wakes the app at the due time; a force-stopped "
+            "app waits until it is opened.",
             {"title": tools._s("Short notification title"),
              "prompt": tools._s("Reminder text, research request or condition to check"),
              "when": tools._s("Future ISO-8601 datetime WITH timezone; omit if delay_minutes or repeat_minutes"),

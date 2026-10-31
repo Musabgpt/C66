@@ -45,6 +45,11 @@ public final class FloatingAssistantService extends Service implements Recogniti
     private static final int NOTIFICATION = 607;
     private static final int MAX_COMMAND = 4000;
     private static final String PREFS = "musabai-floating";
+    private static final String PREF_SESSION_USED = "session_used";
+    /** A request after this long without one opens a fresh thread (sendCommandToAgent). */
+    private static final long SESSION_IDLE_MS = 30 * 60_000L;
+    /** How long a turn is followed: as long as the 1800 reads 750 ms apart that followTurn replaced. */
+    private static final long TURN_LIMIT_MS = 1800 * 750L;
 
     private static final class ChatEntry {
         final String role; // "user", "assistant", "step"
@@ -1093,9 +1098,13 @@ public final class FloatingAssistantService extends Service implements Recogniti
     }
 
     private JSONObject request(String method, String url, JSONObject payload) throws Exception {
+        return request(method, url, payload, 15000);
+    }
+
+    private JSONObject request(String method, String url, JSONObject payload, int readTimeoutMs) throws Exception {
         HttpURLConnection c = (HttpURLConnection) new URL("http://127.0.0.1:" + Setup.PORT + url).openConnection();
         c.setConnectTimeout(4500);
-        c.setReadTimeout(15000);
+        c.setReadTimeout(readTimeoutMs);
         c.setRequestMethod(method);
         c.setRequestProperty("X-NewAl-Key", new Setup(this).key());
         c.setRequestProperty("Accept", "application/json");
@@ -1263,6 +1272,9 @@ public final class FloatingAssistantService extends Service implements Recogniti
     private static String describeToolInArabic(String toolName) {
         if (toolName == null || toolName.isEmpty()) return "تنفيذ خطوة";
         String t = toolName.toLowerCase(Locale.ROOT);
+        if (t.equals("weather")) {
+            return "جلب حالة الطقس";
+        }
         if (t.contains("phone") || t.contains("screen") || t.contains("tap") || t.contains("accessibility")) {
             return "التحكم بشاشة الهاتف";
         }
@@ -1321,11 +1333,16 @@ public final class FloatingAssistantService extends Service implements Recogniti
                 JSONObject state = request("GET", "/api/state", null);
                 String model = state.optJSONObject("settings") == null ? "auto" :
                         state.optJSONObject("settings").optString("model", "auto");
+                SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+                long sentAt = System.currentTimeMillis();
+                // After a long pause the request opens a fresh thread: the model then reads a short conversation (a
+                // faster answer that does not mix in old requests); what it learned stays in its memory.
+                if (!sessionId.isEmpty() && sentAt - prefs.getLong(PREF_SESSION_USED, sentAt) > SESSION_IDLE_MS) {
+                    sessionId = "";
+                }
                 if (!sessionId.isEmpty()) {
                     try {
-                        JSONObject existing = request("GET", "/api/sessions/" + sessionId, null);
-                        JSONObject meta = existing.optJSONObject("meta");
-                        if (meta != null && !model.equals(meta.optString("model"))) {
+                        if (!model.equals(sessionModel(sessionId))) {
                             request("POST", "/api/sessions/" + sessionId + "/settings",
                                     new JSONObject().put("model", model));
                         }
@@ -1340,12 +1357,8 @@ public final class FloatingAssistantService extends Service implements Recogniti
                             .put("mode", "full-auto")
                             .put("warm", false);
                     sessionId = request("POST", "/api/sessions", spec).getString("id");
-                    getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString("session", sessionId).apply();
                 }
-
-                JSONObject existingBeforeSend = request("GET", "/api/sessions/" + sessionId, null);
-                JSONArray eventsBefore = existingBeforeSend.optJSONArray("events");
-                int seenEvents = eventsBefore == null ? 0 : eventsBefore.length();
+                prefs.edit().putString("session", sessionId).putLong(PREF_SESSION_USED, sentAt).apply();
 
                 JSONObject r = request("POST", "/api/sessions/" + sessionId + "/send",
                         new JSONObject().put("text", message).put("lang", "ar"));
@@ -1359,7 +1372,13 @@ public final class FloatingAssistantService extends Service implements Recogniti
                     runPendingIfAny();
                     return;
                 }
+                if (r.has("cursor")) {
+                    followTurn(sessionId, r.getLong("cursor"));
+                    return;
+                }
 
+                // An engine without the events endpoint: the whole thread, read every 750 ms.
+                int seenEvents = legacyEventCount(sessionId);
                 int stepCounter = 0;
                 long lastSpokenProgressAt = SystemClock.elapsedRealtime();
 
@@ -1388,7 +1407,7 @@ public final class FloatingAssistantService extends Service implements Recogniti
                                     speakAnswer("أنا بالخطوة " + stepCounter + "، " + desc, false);
                                 }
                             } else if ("status".equals(evType) || "task_heartbeat".equals(evType)) {
-                                String st = ev.optString("message", ev.optString("status", "")).trim();
+                                String st = ev.optString("text", ev.optString("message", ev.optString("status", ""))).trim();
                                 if (!st.isEmpty()) {
                                     currentStepSummary = st;
                                     postNotice("⏳ " + st);
@@ -1444,6 +1463,94 @@ public final class FloatingAssistantService extends Service implements Recogniti
                 }
             }
         });
+    }
+
+    /** The thread's model, read without its events (from the whole thread on an engine without the endpoint). */
+    private String sessionModel(String sid) throws Exception {
+        try {
+            JSONObject peek = request("GET", "/api/sessions/" + sid + "/events?after=-1", null);
+            if (peek.has("next")) return peek.optString("model");
+        } catch (JSONException older) {
+            // an older engine answers that address with its web page
+        }
+        JSONObject meta = request("GET", "/api/sessions/" + sid, null).optJSONObject("meta");
+        return meta == null ? "" : meta.optString("model");
+    }
+
+    private int legacyEventCount(String sid) throws Exception {
+        JSONArray events = request("GET", "/api/sessions/" + sid, null).optJSONArray("events");
+        return events == null ? 0 : events.length();
+    }
+
+    /**
+     * Follows a turn through the engine's events endpoint, which answers as soon as something happens (or after 20 s
+     * of quiet) with only what is new. Reading the whole thread every 750 ms moved up to 500 KB of JSON a read on a
+     * long thread (past that the read failed as "cannot reach the engine"), and saw the answer up to 750 ms late.
+     */
+    private void followTurn(String sid, long cursor) throws Exception {
+        int stepCounter = 0;
+        long lastSpokenProgressAt = SystemClock.elapsedRealtime();
+        long deadline = SystemClock.elapsedRealtime() + TURN_LIMIT_MS;
+        String answer = "";
+        boolean failed = false;
+        while (!destroyed && !cancelRequested && SystemClock.elapsedRealtime() < deadline) {
+            JSONObject res = request("GET", "/api/sessions/" + sid + "/events?after=" + cursor + "&wait=20", null,
+                    30000);
+            cursor = res.optLong("next", cursor);
+            JSONArray events = res.optJSONArray("events");
+            boolean ended = false;
+            for (int i = 0; events != null && i < events.length(); i++) {
+                JSONObject ev = events.optJSONObject(i);
+                if (ev == null) continue;
+                String type = ev.optString("type");
+                if ("tool_start".equals(type)) {
+                    stepCounter++;
+                    String desc = describeToolInArabic(ev.optString("name", ev.optString("tool", "")));
+                    currentStepSummary = "الخطوة " + stepCounter + ": " + desc;
+                    addHistoryEntry("step", "⚡ " + currentStepSummary);
+                    postNotice("⚡ " + currentStepSummary);
+                    long t = SystemClock.elapsedRealtime();
+                    if (t - lastSpokenProgressAt > 14000L && !speaking) {
+                        lastSpokenProgressAt = t;
+                        speakAnswer("أنا بالخطوة " + stepCounter + "، " + desc, false);
+                    }
+                } else if ("status".equals(type)) {
+                    String st = ev.optString("text", "").trim();
+                    if (!st.isEmpty()) {
+                        currentStepSummary = st;
+                        postNotice("⏳ " + st);
+                    }
+                } else if ("turn_end".equals(type) || "error".equals(type) || "reply".equals(type)) {
+                    String text = ev.optString("answer", ev.optString("text", ev.optString("message", ""))).trim();
+                    if ("error".equals(type) || !ev.optString("error", "").isEmpty()) failed = true;
+                    if (text.isEmpty() && "turn_end".equals(type)) text = ev.optString("error", "").trim();
+                    if (!text.isEmpty()) answer = text;
+                    if ("turn_end".equals(type)) ended = true;
+                }
+            }
+            if (ended || !res.optBoolean("busy", true)) {
+                finishTurn(failed && !answer.isEmpty() ? "تعذّر إكمال المهمة: " + answer : answer);
+                return;
+            }
+        }
+        if (busy && !cancelRequested) {
+            busy = false;
+            String timeoutMsg = "المهمة أخذت وقتاً طويلاً؛ افحص تطبيق MusabAI للتفاصيل.";
+            addHistoryEntry("assistant", timeoutMsg);
+            postNotice("⚠️ " + timeoutMsg);
+            speakAnswer(timeoutMsg, false);
+        }
+    }
+
+    private void finishTurn(String answer) {
+        String finalAnswer = answer == null || answer.isEmpty() ? "انتهت المهمة. افتح MusabAI لرؤية التفاصيل." : answer;
+        busy = false;
+        currentStepSummary = "اكتملت المهمة";
+        lastAnswer = finalAnswer;
+        addHistoryEntry("assistant", finalAnswer);
+        postNotice("✓ " + (finalAnswer.length() > 260 ? finalAnswer.substring(0, 260) + "…" : finalAnswer));
+        speakAnswer(finalAnswer, false);
+        runPendingIfAny();
     }
 
     private void runPendingIfAny() {
