@@ -31,6 +31,18 @@ def apply(src, package, replace):
             m = re.match(r"^/api/sessions/([\w\-]+)/changes$", path)
 ''')
 
+    # A reply that says it did what no tool did is sent back once (agent.claims). Live on the phone, the free model
+    # answered "ذكرني بعد ساعتين..." with "تم. سأذكرك..." and "**تم الحفظ**" and saved nothing: "تم" next to a full
+    # stop or an asterisk went unnoticed, and the correction named no tool that saves a reminder.
+    replace(package / "agent.py",
+            '    r"(?:^|\\s)(?:تم|لقد|قمت|أنشأت|انشأت|كتبت|فتحت|أضفت|اضفت|عدلت|عدّلت|صلحت|أصلحت|حفظت|شغلت|شغّلت|حذفت)(?:\\s|$)",\n',
+            '    r"(?<!\\w)(?:تم|تمت|لقد|قمت|أنشأت|انشأت|كتبت|فتحت|أضفت|اضفت|عدلت|عدّلت|صلحت|أصلحت|حفظت|شغلت|شغّلت|حذفت|"\n'
+            '    r"ضبطت|سجلت|سجّلت|جدولت|أرسلت|ارسلت|بعثت)(?!\\w)",\n')
+    replace(package / "agent.py",
+            '                                              ("phone", "phone acts on the phone (action=open_app...)"))\n',
+            '                                              ("scheduled_task_create", "scheduled_task_create saves a reminder"),\n'
+            '                                              ("phone", "phone acts on the phone (action=open_app...)"))\n')
+
     replace(package / "agent.py",
             "        parts += extra_context\n"
             "        from . import lean, phone_fast\n",

@@ -207,6 +207,8 @@
       () => phone.openAccessibilitySettings && phone.openAccessibilitySettings()]);
     if (st.contacts === false) missing.push([tr('Call and message your contacts by name', 'اتصل وراسل جهات الاتصال بالاسم'),
       () => phone.allowContacts && phone.allowContacts()]);
+    if (st.location === false) missing.push([tr('Weather for where you are', 'الطقس حسب مكانك'),
+      () => phone.allowLocation && phone.allowLocation()]);
     if (st.microphone === false) missing.push([tr('Turn on the microphone', 'فعّل الميكروفون'),
       () => phone.setupAll && phone.setupAll()]);
     card.hidden = !missing.length;

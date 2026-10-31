@@ -118,6 +118,24 @@ class EventsRouteTests(unittest.TestCase):
         self.assertEqual((body["next"], body["busy"]), (1, False))
 
 
+class ClaimTests(unittest.TestCase):
+    """Replies the free model gave on the phone while no tool had run."""
+
+    def test_claims_next_to_punctuation_are_caught(self):
+        from . import agent
+        for reply in ("حسنًا، بذكرّك بكرا.  **تم الحفظ**   - العنوان: أخذ الدواء",
+                      "تم. سأذكرك بعد ساعتين بالاتصال بأمي.",
+                      "ضبطت المنبه على الساعة 7.", "تمت إضافة التذكير"):
+            with self.subTest(reply=reply):
+                self.assertTrue(agent.claims(reply))
+
+    def test_words_that_only_contain_a_claim_are_not_claims(self):
+        from . import agent
+        for reply in ("تمام، شو بدك أعمل؟", "الطقس اليوم في عمّان صافٍ"):
+            with self.subTest(reply=reply):
+                self.assertFalse(agent.claims(reply))
+
+
 class ClockTests(unittest.TestCase):
     def test_note_has_weekday_time_and_offset(self):
         with mock.patch.dict(os.environ, {"TZ": "Asia/Amman"}):

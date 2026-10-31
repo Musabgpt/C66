@@ -36,9 +36,11 @@ class WeatherTests(unittest.TestCase):
                 return json.dumps(self.geo)
             return json.dumps(FORECAST)
         self.geo = GEO
-        p = mock.patch.object(tools, "_get", side_effect=get)
-        p.start()
-        self.addCleanup(p.stop)
+        self.position = None
+        for p in (mock.patch.object(tools, "_get", side_effect=get),
+                  mock.patch.object(weather, "phone_position", side_effect=lambda: self.position)):
+            p.start()
+            self.addCleanup(p.stop)
 
     def run_in(self, zone, place):
         with mock.patch.dict(os.environ, {"TZ": zone} if zone else {}, clear=False):
@@ -64,9 +66,19 @@ class WeatherTests(unittest.TestCase):
         text, meta = self.run_in("Europe/London", "عمان")
         self.assertEqual(meta["country"], "الأردن")
 
-    def test_no_place_is_the_time_zone_city(self):
-        self.run_in("America/New_York", "")
-        self.assertTrue(self.urls[0].endswith("name=New%20York"))
+    def test_no_place_and_no_position_is_the_time_zone_city_said_as_a_guess(self):
+        text, _ = self.run_in("Europe/London", "")
+        self.assertTrue(self.urls[0].endswith("name=London"))
+        self.assertIn("the phone's own position is unknown", text.splitlines()[0])
+
+    def test_no_place_is_where_the_phone_is(self):
+        self.position = {"ok": True, "lat": 52.48621, "lon": -1.89042, "town": "Birmingham",
+                         "country": "United Kingdom"}
+        text, meta = self.run_in("Europe/London", "")
+        self.assertEqual(len(self.urls), 1)                          # no geocoding: the forecast at the position
+        self.assertIn("latitude=52.49&longitude=-1.89", self.urls[0])  # rounded to about a kilometre
+        self.assertTrue(text.startswith("Birmingham، United Kingdom"))
+        self.assertNotIn("unknown", text)
 
     def test_report_has_the_numbers(self):
         text, _ = self.run_in("Asia/Amman", "Amman")

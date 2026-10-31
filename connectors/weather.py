@@ -4,7 +4,11 @@ The question a personal assistant gets most. A web search answered it with pages
 weather (websearch.py); this gives the numbers. Open-Meteo's geocoder knows Arabic names, but only as written: "عمان"
 finds villages in Iraq and Yemen, "عمّان" (with the shadda nobody types) the capital of Jordan. So of the places
 found, the one in the phone's time zone wins; when none is, the phone's own city is taken if its name without marks is
-the name asked for; else the most populous place. With no place said, the city of the phone's time zone is used."""
+the name asked for; else the most populous place.
+
+With no place said, the phone's last known approximate position is used when the user has allowed it (rounded to
+about a kilometre before it goes to Open-Meteo). Otherwise the city of the phone's time zone is used and the answer
+says so: a phone in Birmingham is on Europe/London, and London is not where its user is."""
 import json
 import os
 import re
@@ -62,17 +66,40 @@ def place_for(name):
     return max(pool, key=lambda r: r.get("population") or 0) if pool else None
 
 
+def phone_position():
+    """The phone's last known approximate position ({"lat", "lon", "town", "country"}), or None: not allowed, no
+    fix yet, an older app, or no phone at all (a computer)."""
+    from . import phone
+    if not phone.available():
+        return None
+    try:
+        got = phone.call("location", timeout=10)
+    except Exception:  # noqa: BLE001 - the time zone's city is the fallback
+        return None
+    return got if got.get("ok") and got.get("lat") is not None else None
+
+
 def report(place=""):
-    name = str(place or "").strip() or home_place()
+    name, where, note = str(place or "").strip(), None, ""
     if not name:
-        raise tools.ToolError("say which city or place")
-    where = place_for(name)
+        pos = phone_position()
+        if pos:
+            where = {"name": pos.get("town") or "the phone's location", "country": pos.get("country") or "",
+                     "latitude": round(float(pos["lat"]), 2), "longitude": round(float(pos["lon"]), 2)}
+        else:
+            name = home_place()
+            note = (" — the phone's own position is unknown (its location is not allowed), so this is the city of "
+                    "its time zone; ask for the user's town if it may be another")
     if where is None:
-        raise tools.ToolError("no place called %r was found; try the city's name in English or Arabic" % name)
+        if not name:
+            raise tools.ToolError("say which city or place")
+        where = place_for(name)
+        if where is None:
+            raise tools.ToolError("no place called %r was found; try the city's name in English or Arabic" % name)
     f = json.loads(tools._get(FORECAST % (where["latitude"], where["longitude"])))
     now, day = f["current"], f["daily"]
-    lines = ["%s، %s — local time %s (%s)" % (where.get("name"), where.get("country", ""), now.get("time", ""),
-                                               f.get("timezone", "")),
+    lines = ["%s، %s — local time %s (%s)%s" % (where.get("name"), where.get("country", ""), now.get("time", ""),
+                                                 f.get("timezone", ""), note),
              "Now: %s°C (feels %s°C), %s, humidity %s%%, wind %s km/h." % (
                  now["temperature_2m"], now["apparent_temperature"], _sky(now["weather_code"]),
                  now["relative_humidity_2m"], now["wind_speed_10m"])]
@@ -86,7 +113,7 @@ def report(place=""):
 
 
 @tools.tool("weather", "The weather now, today and the next two days for a place (Open-Meteo). Use it for any "
-            "weather question instead of web_search; with no place it uses the phone's own area.",
+            "weather question instead of web_search; with no place it uses where the phone is.",
             {"place": tools._s("city or place, best in English (Amman, Riyadh); empty for the phone's area")}, [],
             "net")
 def t_weather(ctx, place=""):

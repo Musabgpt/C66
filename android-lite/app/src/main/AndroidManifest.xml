@@ -24,6 +24,9 @@
     <!-- "اتصل بأحمد" / "ابعث رسالة لأمي": the number of a saved contact. Asked for from the assistant's home screen;
          without it, a call or message to a number still works. Nothing is sent: the dialer or messages app opens. -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <!-- "شو الطقس؟": the weather tool reads the phone's last known approximate position (no GPS fix is started).
+         Asked for from the assistant's home screen; without it the weather is for the time zone's city. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <!-- GGUF files the user already has (Download, Documents...): Android 11 and up ask for "All files access",
          older Android for the storage permission. Only when the user turns it on from the Models page. -->
     <uses-permission

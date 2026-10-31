@@ -87,6 +87,8 @@ final class WebBridge {
             o.put("files", Access.files(act));
             o.put("contacts", act.checkSelfPermission(android.Manifest.permission.READ_CONTACTS)
                     == PackageManager.PERMISSION_GRANTED);
+            o.put("location", act.checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION)
+                    == PackageManager.PERMISSION_GRANTED);
             o.put("notifications", Build.VERSION.SDK_INT < 33 || act.checkSelfPermission(
                     "android.permission.POST_NOTIFICATIONS") == PackageManager.PERMISSION_GRANTED);
         } catch (Exception ignored) {
@@ -120,6 +122,13 @@ final class WebBridge {
     @JavascriptInterface
     public void allowContacts() {
         act.runOnUiThread(() -> act.requestPermissions(new String[] {android.Manifest.permission.READ_CONTACTS}, 41));
+    }
+
+    /** Approximate location, for "the weather here" (the weather tool asks the phone): Android's own prompt. */
+    @JavascriptInterface
+    public void allowLocation() {
+        act.runOnUiThread(() -> act.requestPermissions(
+                new String[] {android.Manifest.permission.ACCESS_COARSE_LOCATION}, 42));
     }
 
     /** Restart the native setup wizard from the app's connections screen. */

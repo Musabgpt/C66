@@ -34,11 +34,26 @@ and from this change side by side in a temporary folder.
   list is taken only when its results carry the query's words (Arabic letter forms folded, the article dropped).
   Live on the phone, the gold question now gets three Jordanian gold-price pages.
 - **A weather tool** (connectors/weather.py, Open-Meteo, no key) gives the numbers for now, today and two more days,
-  in about 0.5 s. With no place it uses the phone's area. "عمان" without its shadda finds only villages in Iraq and
-  Yemen at the geocoder, so the phone's own city wins when its name without marks matches.
+  in about 0.5 s. With no place it uses the phone's last known approximate position, once the user allows it from the
+  home screen card (Phone action "location", no GPS fix, rounded to about a kilometre). Otherwise it uses the time
+  zone's city and says so: a phone in Birmingham is on Europe/London. "عمان" without its shadda finds only villages in
+  Iraq and Yemen at the geocoder, so the phone's own city wins when its name without marks matches.
+- **Claims without action are caught.** The free model answered two of four reminder requests with "تم. سأذكرك..."
+  or "**تم الحفظ**" and saved nothing. The engine's check for such replies missed "تم" next to a full stop or an
+  asterisk, and its correction named no tool that saves a reminder. Both are fixed; in the next four live requests
+  all four reminders were saved, at the right local time.
 
-Tests: connectors/http_pool_tests.py (9), assistant_events_tests.py (9), websearch_tests.py (11),
-weather_tests.py (7), and new cases in scheduled_tasks_tests.py. On the phone, the CI list of engine suites shows the
+Live turns on the phone with the app's default free model (old engine without a time zone, as the old app ran it,
+against the new one with a phone zone of Asia/Amman to show a zone other than UTC):
+
+| Request | Old engine | New engine |
+| --- | --- | --- |
+| "شو الطقس اليوم؟" | 63 s, 20 searches and fetches, a vague answer about London | 7 s, one weather call, the numbers |
+| "ذكرني بكرا الساعة 9 الصبح آخذ الدوا" | saved for 12:00 local time | saved for 09:00 local time |
+| "كم سعر الذهب اليوم في الأردن؟" | 89 s, no price | 58 s, still no price (the pages' snippets carry none) |
+
+Tests: connectors/http_pool_tests.py (9), assistant_events_tests.py (11), websearch_tests.py (11),
+weather_tests.py (8), and new cases in scheduled_tasks_tests.py. On the phone, the CI list of engine suites shows the
 same 16 environment failures before and after this change (no git, bash or Termux in the temporary folder), and the
 same 73 unclosed-resource warnings under `-X dev`.
 
