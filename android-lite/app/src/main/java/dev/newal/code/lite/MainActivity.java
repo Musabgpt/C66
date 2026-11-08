@@ -108,6 +108,7 @@ public class MainActivity extends Activity {
         startAgent(false);
         Shared.from(this, getIntent(), this::tellShared);
         Shared.shortcut(getIntent(), this::tellShared);
+        root.postDelayed(() -> FirstRunSetup.offer(this), 1200);
     }
 
     /** Shared from another app while NewAl Code runs (the activity is single-task). */
@@ -325,12 +326,23 @@ public class MainActivity extends Activity {
         Access.resumed(this);
         readiness.resume();
         waitForServer(true);
+        FirstRunSetup.resume(this);
     }
 
     @Override
     public void onRequestPermissionsResult(int request, String[] permissions, int[] results) {
         super.onRequestPermissionsResult(request, permissions, results);
         Access.answered(this, request);
+        FirstRunSetup.permission(this, request);
+    }
+
+    void showSetupError(String message) {
+        runOnUiThread(() -> android.widget.Toast.makeText(this, message, android.widget.Toast.LENGTH_LONG).show());
+    }
+
+    void openConnections() {
+        runOnUiThread(() -> web.evaluateJavascript(
+            "window.openMusabConnectors && window.openMusabConnectors()", null));
     }
 
     /** The full-access walk is over: the page hears what is on now. */

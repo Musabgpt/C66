@@ -90,23 +90,25 @@ final class Phone {
             case "install_apk":
                 return installApk(ctx, a.optString("path"));
             case "notifications_read":
-                return ok(LocalNotificationAgentService.readFiltered(ctx, a.optString("query"), a.optInt("limit", 40)));
+                return ok(LocalNotificationAgentService.readFiltered(ctx,
+                        a.optString("query", a.optString("name", a.optString("package", ""))),
+                        a.optInt("limit", 0)));
             case "notification_reply":
-                return LocalNotificationAgentService.reply(ctx, a.optString("target", a.optString("query")), a.optString("text"));
+                return LocalNotificationAgentService.reply(ctx, a);
             case "notification_action":
-                return LocalNotificationAgentService.invokeAction(ctx, a.optString("target", a.optString("query")), a.optString("button", a.optString("title")));
+                return LocalNotificationAgentService.triggerAction(ctx, a);
             case "notification_dismiss":
-                return LocalNotificationAgentService.dismiss(ctx, a.optString("target", a.optString("query")));
+                return LocalNotificationAgentService.dismiss(ctx, a);
             case "contacts":
-                return OpenClawNode.contacts(ctx, a.optString("query", a.optString("name")), a.optInt("limit", 25));
+                return OpenClawNode.contacts(ctx, a);
             case "contact_add":
                 return OpenClawNode.contactAdd(ctx, a);
             case "calendar":
-                return OpenClawNode.calendar(ctx, a.optInt("days", 7), a.optInt("limit", 30));
+                return OpenClawNode.calendar(ctx, a);
             case "calendar_add":
                 return OpenClawNode.calendarAdd(ctx, a);
             case "media":
-                return OpenClawNode.media(ctx, a.optString("command", a.optString("button", "play_pause")));
+                return OpenClawNode.media(ctx, a);
             case "sensors":
                 return OpenClawNode.sensors(ctx);
             case "automation_start":

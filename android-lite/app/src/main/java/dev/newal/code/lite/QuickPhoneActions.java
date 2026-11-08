@@ -329,13 +329,13 @@ final class QuickPhoneActions {
 
         // 2b. Media Playback Controls (OpenClaw Node)
         if (f.matches("(وقف|ايقاف|شغل|كمل|استئناف) (ال)?(موسيقي|اغنيه|مقطع|فيديو)")) {
-            try { OpenClawNode.media(context, "play_pause"); return ActionResult.ok("⏯️ تم تبديل تشغيل الوسائط.", "تم تبديل تشغيل الوسائط.", false); } catch (Exception ignored) {}
+            try { OpenClawNode.media(context, new org.json.JSONObject().put("command", "play_pause")); return ActionResult.ok("⏯️ تم تبديل تشغيل الوسائط.", "تم تبديل تشغيل الوسائط.", false); } catch (Exception ignored) {}
         }
         if (f.matches("(الاغنيه |المقطع )?(التالي|التاليه|الي بعده|الي بعدها)")) {
-            try { OpenClawNode.media(context, "next"); return ActionResult.ok("⏭️ انتقلت إلى المقطع التالي.", "المقطع التالي.", false); } catch (Exception ignored) {}
+            try { OpenClawNode.media(context, new org.json.JSONObject().put("command", "next")); return ActionResult.ok("⏭️ انتقلت إلى المقطع التالي.", "المقطع التالي.", false); } catch (Exception ignored) {}
         }
         if (f.matches("(الاغنيه |المقطع )?(السابق|السابقه|الي قبله|الي قبلها)")) {
-            try { OpenClawNode.media(context, "previous"); return ActionResult.ok("⏮️ رجعت إلى المقطع السابق.", "المقطع السابق.", false); } catch (Exception ignored) {}
+            try { OpenClawNode.media(context, new org.json.JSONObject().put("command", "previous")); return ActionResult.ok("⏮️ رجعت إلى المقطع السابق.", "المقطع السابق.", false); } catch (Exception ignored) {}
         }
 
         // 3. Battery Status
