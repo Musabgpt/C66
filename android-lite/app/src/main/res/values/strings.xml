@@ -12,4 +12,5 @@
     <string name="shortcut_voice_long">التحدث الصوتي المباشر مع المساعد</string>
     <string name="shortcut_node_short">حالة الهاتف</string>
     <string name="shortcut_node_long">فحص حالة الهاتف والإشعارات والاتصال</string>
+    <string name="memory_app_name">MusabAI Memory</string>
 </resources>

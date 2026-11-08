@@ -111,6 +111,25 @@
             </intent-filter>
         </activity>
 
+        <!-- Task Memory: the categorized library of procedures the assistant uses (TaskMemory), as its own app with
+             its own icon in the launcher. -->
+        <activity
+            android:name=".TaskMemoryActivity"
+            android:exported="true"
+            android:label="@string/memory_app_name"
+            android:icon="@drawable/ic_memory"
+            android:roundIcon="@drawable/ic_memory"
+            android:taskAffinity="dev.newal.code.lite.memory"
+            android:launchMode="singleTask"
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode|smallestScreenSize"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
         <!-- The screen, taps and typing for the agent's phone tool, when the user turns it on in Accessibility. -->
         <service
             android:name=".PhoneControlService"

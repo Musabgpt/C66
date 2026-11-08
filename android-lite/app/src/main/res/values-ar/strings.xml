@@ -5,4 +5,5 @@
     <string name="a11y_description">يتيح لوكيل NewAl Code قراءة ما على الشاشة، والنقر والكتابة والتمرير، حين تطلب منه استخدام هاتفك. لا يقرأ الشاشة إلا حين يطلب الوكيل ذلك، ولا يتصرف إلا بطلبك (ويسألك أولاً ما لم تكن المحادثة بوصول كامل). ما يقرؤه يذهب إلى النموذج الذي اخترته في NewAl Code: الذي على هذا الهاتف، أو الـ API الذي ربطته.</string>
     <string name="shortcut_new">محادثة جديدة</string>
     <string name="shortcut_voice">اطلب بصوتك</string>
+    <string name="memory_app_name">ذاكرة المهام</string>
 </resources>

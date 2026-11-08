@@ -144,6 +144,12 @@ final class WebBridge {
     }
 
     /** User-controlled floating overlay, no background permission escalation. */
+    /** Opens the task memory: the categorized library of procedures the assistant uses (TaskMemoryActivity). */
+    @JavascriptInterface
+    public void openTaskMemory() {
+        act.runOnUiThread(() -> act.startActivity(new android.content.Intent(act, TaskMemoryActivity.class)));
+    }
+
     @JavascriptInterface
     public void floatingAssistant(boolean enabled, boolean handsFree) {
         act.runOnUiThread(() -> {

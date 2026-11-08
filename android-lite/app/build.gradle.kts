@@ -5,6 +5,8 @@ plugins {
 dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20250517")
+    // the task memory's matching is tested on the shipped SQLite library (TaskMemoryTest)
+    testImplementation("org.xerial:sqlite-jdbc:3.46.1.3")
 }
 
 val releaseStoreFile = System.getenv("MUSABAI_RELEASE_STORE_FILE")

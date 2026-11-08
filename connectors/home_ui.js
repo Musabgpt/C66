@@ -158,6 +158,13 @@
       ['🗓️', 'Plan my day', 'رتّب يومي', { fill: ['Plan my day: ', 'رتبلي يومي: '] }],
       ['🌐', 'Translate', 'ترجمة', { fill: ['Translate to English: ', 'ترجم للعربي: '] }],
     ]],
+    // the task memory (TaskMemory.java): these requests come with the steps the memory has for them
+    ['Task memory', 'ذاكرة المهام', [
+      ['🧠', 'Task memory', 'ذاكرة المهام', { call: () => phone.openTaskMemory && phone.openTaskMemory() }],
+      ['📝', 'Facebook post', 'منشور فيسبوك', { fill: ['Post on Facebook: ', 'انشر على فيسبوك: '] }],
+      ['📤', 'WhatsApp message', 'رسالة واتساب', { fill: ['Send a WhatsApp message to ', 'ابعث رسالة واتساب ل'] }],
+      ['📥', 'Install an app', 'نزّل تطبيق', { fill: ['Install the app ', 'نزل تطبيق '] }],
+    ]],
     ['Discover', 'اكتشف', [
       ['🔎', 'Search', 'بحث', { fill: ['Search for ', 'ابحث عن '] }],
       // the caret goes between the verb and "on YouTube", where the song or video is said

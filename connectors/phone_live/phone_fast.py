@@ -386,14 +386,15 @@ def note(agent, request):
     """The line a matching routine adds to the user's message (on the phone, in lean mode)."""
     agent._phone_request = request
     try:
-        from . import lean
-        if not lean.active() or "phone_routine" not in agent.tool_names():
+        if "phone_routine" not in agent.tool_names():
             return ""                                 # (a small on-device model has the phone tool only)
         r = match(request)
     except Exception:  # noqa: BLE001
         return ""
     if not r:
-        return ""
+        # nothing learned on this phone fits: the task memory (AndroidControl, Mind2Web, InSTA-150K, curated)
+        from . import task_memory
+        return task_memory.note(agent, request)
     vals = ", ".join('{%d} was "%s"' % (i + 1, v) for i, v in enumerate(r.get("values") or []))
     return ("(Saved phone routine %s, learned from \"%s\"%s: %s. If it fits this request, call phone_routine with "
             "id %s and the values for this request in one call; it checks each step and shows the final screen.)"
@@ -442,15 +443,27 @@ def _settle(screen, want):
 
 def install():
     @tools.tool("phone_routine",
-                "Replay a saved phone routine (a task done before on this phone) in one call: each step is checked, "
-                "and the final screen must show the text it typed last. values fill its slots {1}, {2}... for this "
-                "request (a contact, a message, a search). Where the screen differs it stops and shows the screen: "
-                "continue by hand from there. action=list shows the saved routines; action=forget removes one.",
-                {"id": tools._s("the routine's id, e.g. r3"),
+                "Replay a saved phone routine (a task done before on this phone, id r3) or a task-memory procedure "
+                "(id tm:..., from a note or a search) in one call: each step is checked, and the final screen must "
+                "show the text it typed last. values fill its slots {1}, {2}... for this request (a contact, a "
+                "message, a post). Where the screen differs it stops and shows the screen: continue by hand from "
+                "there. action=search with query finds procedures in the task memory; action=show (id tm:...) shows "
+                "one; action=list shows the saved routines; action=forget removes one.",
+                {"id": tools._s("r3 or tm:..."),
                  "values": {"type": "array", "items": {"type": "string"},
                             "description": "slot values in order: {1}, {2}..."},
-                 "action": tools._s("run (default), list or forget")}, [], "phone")
-    def t_phone_routine(ctx, id="", values=None, action="run"):
+                 "query": tools._s("for action=search: the task"),
+                 "action": tools._s("run (default), search, show, list or forget")}, [], "phone")
+    def t_phone_routine(ctx, id="", values=None, action="run", query=""):
+        from . import task_memory
+        if action == "search":
+            return task_memory.search(query or id)
+        if str(id or "").startswith(task_memory.PREFIX):
+            if action == "show":
+                return task_memory.show(id)
+            if action == "forget":
+                raise tools.ToolError("task-memory procedures are part of the library: they cannot be forgotten")
+            return task_memory.run(ctx, id, values)
         if action == "list":
             rs = load()
             if not rs:

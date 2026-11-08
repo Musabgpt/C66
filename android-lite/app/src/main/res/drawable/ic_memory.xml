@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Task Memory's mark: a card of numbered steps on deep navy, with a cyan "run" badge. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path android:fillColor="#FF0F172A" android:pathData="M0,0h108v108h-108z" />
+    <path android:fillColor="#FF4338CA" android:pathData="M34,22h40a6,6 0 0 1 6,6v8h-52v-8a6,6 0 0 1 6,-6z" />
+    <path android:fillColor="#FF7C3AED" android:pathData="M28,32h52a6,6 0 0 1 6,6v38a6,6 0 0 1 -6,6h-52a6,6 0 0 1 -6,-6v-38a6,6 0 0 1 6,-6z" />
+    <path android:fillColor="#FFFFFFFF" android:pathData="M34,44h8v6h-8zM46,45h26v4h-26zM34,56h8v6h-8zM46,57h20v4h-20zM34,68h8v6h-8zM46,69h14v4h-14z" />
+    <path android:fillColor="#FF06B6D4" android:pathData="M78,80m-14,0a14,14 0 1,0 28,0a14,14 0 1,0 -28,0" />
+    <path android:fillColor="#FFFFFFFF" android:pathData="M74,72l12,8l-12,8z" />
+</vector>

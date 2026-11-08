@@ -62,6 +62,9 @@ final class Phone {
         if (!(a.optBoolean("private", false) && "type".equals(action))) {
             AutomationStore.record(action, a);
         }
+        if (TaskMemoryActions.handles(action)) {
+            return TaskMemoryActions.handle(ctx, a);      // the task memory (TaskMemory): match, search, run
+        }
         switch (action) {
             case "document_pdf":
                 return DocumentFiles.pdf(ctx, a);
