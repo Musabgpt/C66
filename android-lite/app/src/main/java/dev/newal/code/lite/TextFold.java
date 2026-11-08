@@ -76,4 +76,9 @@ final class TextFold {
         }
         return letter ? out.toString() : "";
     }
+
+    static boolean containsFolded(CharSequence haystack, CharSequence needle) {
+        String n = fold(needle);
+        return n.isEmpty() || fold(haystack).contains(n);
+    }
 }

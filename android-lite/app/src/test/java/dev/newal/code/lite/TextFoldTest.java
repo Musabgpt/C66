@@ -3,7 +3,9 @@ package dev.newal.code.lite;
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertTrue;
 
 public class TextFoldTest {
     @Test public void arabicLetterFormsPeopleTypeInterchangeablyMatch() {
@@ -36,5 +38,12 @@ public class TextFoldTest {
         assertEquals("", TextFold.withoutNumbers("14"));
         assertEquals("", TextFold.withoutNumbers("12:45"));
         assertEquals("", TextFold.withoutNumbers(null));
+    }
+
+    @Test public void containsFoldedMatchesArabicSubstrings() {
+        assertTrue(TextFold.containsFolded("رسالة من أحمد العتيبي", "احمد"));
+        assertTrue(TextFold.containsFolded("مروة السعيد - واتساب", "مروه"));
+        assertFalse(TextFold.containsFolded("رسالة من سارة", "احمد"));
+        assertFalse(TextFold.containsFolded(null, "احمد"));
     }
 }

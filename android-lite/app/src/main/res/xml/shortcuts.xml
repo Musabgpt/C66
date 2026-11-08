@@ -5,20 +5,33 @@
         android:enabled="true"
         android:icon="@drawable/ic_launcher"
         android:shortcutId="new"
-        android:shortcutShortLabel="@string/shortcut_new">
+        android:shortcutShortLabel="@string/shortcut_new"
+        android:shortcutLongLabel="@string/shortcut_new_chat_long">
         <intent
             android:action="dev.newal.code.lite.NEW"
             android:targetClass="dev.newal.code.lite.MainActivity"
-            android:targetPackage="dev.newal.code.lite" />
+            android:targetPackage="dev.newal.code.lite.connectors" />
     </shortcut>
     <shortcut
         android:enabled="true"
         android:icon="@drawable/ic_launcher"
         android:shortcutId="voice"
-        android:shortcutShortLabel="@string/shortcut_voice">
+        android:shortcutShortLabel="@string/shortcut_voice"
+        android:shortcutLongLabel="@string/shortcut_voice_long">
         <intent
             android:action="dev.newal.code.lite.VOICE"
             android:targetClass="dev.newal.code.lite.MainActivity"
-            android:targetPackage="dev.newal.code.lite" />
+            android:targetPackage="dev.newal.code.lite.connectors" />
+    </shortcut>
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/ic_launcher"
+        android:shortcutId="phone_node"
+        android:shortcutShortLabel="@string/shortcut_node_short"
+        android:shortcutLongLabel="@string/shortcut_node_long">
+        <intent
+            android:action="dev.newal.code.lite.NODE_STATUS"
+            android:targetClass="dev.newal.code.lite.MainActivity"
+            android:targetPackage="dev.newal.code.lite.connectors" />
     </shortcut>
 </shortcuts>

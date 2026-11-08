@@ -23,6 +23,7 @@ import java.util.List;
 final class Shared {
     private static final long LIMIT = 200L * 1024 * 1024;
     private static volatile String pending = "";
+    private static volatile Runnable liveListener;
 
     private Shared() {
     }
@@ -36,13 +37,45 @@ final class Shared {
         return a;
     }
 
-    /** The icon's shortcuts: a new thread, or a spoken request. */
+    static void fromNotificationReply(String replyText) {
+        if (replyText == null || replyText.trim().isEmpty()) return;
+        try {
+            JSONObject o = new JSONObject();
+            o.put("text", replyText.trim());
+            o.put("files", new JSONArray());
+            o.put("source", "notification_reply");
+            pending = o.toString();
+            Runnable r = liveListener;
+            if (r != null) r.run();
+        } catch (Exception ignored) {
+        }
+    }
+
+    /** The icon's shortcuts: a new thread, a spoken request, system Digital Assistant (ACTION_ASSIST), or node status. */
     static boolean shortcut(Intent i, Runnable tell) {
+        liveListener = tell;
         String a = i == null ? null : i.getAction();
         if ("dev.newal.code.lite.NEW".equals(a) || "dev.newal.code.lite.VOICE".equals(a)) {
             action = a.endsWith("VOICE") ? "voice" : "new";
             i.setAction(Intent.ACTION_MAIN);
             tell.run();
+            return true;
+        }
+        if (Intent.ACTION_ASSIST.equals(a) || Intent.ACTION_VOICE_COMMAND.equals(a)) {
+            String extraText = i.getStringExtra(Intent.EXTRA_TEXT);
+            if (extraText != null && !extraText.trim().isEmpty()) {
+                fromNotificationReply(extraText.trim());
+            } else {
+                action = "voice";
+            }
+            i.setAction(Intent.ACTION_MAIN);
+            tell.run();
+            return true;
+        }
+        if ("dev.newal.code.lite.NODE_STATUS".equals(a)
+                || "phone_node".equals(i != null ? i.getStringExtra("extra_shortcut") : null)) {
+            fromNotificationReply("افحص حالة الهاتف والإشعارات والاتصال");
+            i.setAction(Intent.ACTION_MAIN);
             return true;
         }
         return false;

@@ -90,7 +90,25 @@ final class Phone {
             case "install_apk":
                 return installApk(ctx, a.optString("path"));
             case "notifications_read":
-                return ok(LocalNotificationAgentService.read(ctx));
+                return ok(LocalNotificationAgentService.readFiltered(ctx, a.optString("query"), a.optInt("limit", 40)));
+            case "notification_reply":
+                return LocalNotificationAgentService.reply(ctx, a.optString("target", a.optString("query")), a.optString("text"));
+            case "notification_action":
+                return LocalNotificationAgentService.invokeAction(ctx, a.optString("target", a.optString("query")), a.optString("button", a.optString("title")));
+            case "notification_dismiss":
+                return LocalNotificationAgentService.dismiss(ctx, a.optString("target", a.optString("query")));
+            case "contacts":
+                return OpenClawNode.contacts(ctx, a.optString("query", a.optString("name")), a.optInt("limit", 25));
+            case "contact_add":
+                return OpenClawNode.contactAdd(ctx, a);
+            case "calendar":
+                return OpenClawNode.calendar(ctx, a.optInt("days", 7), a.optInt("limit", 30));
+            case "calendar_add":
+                return OpenClawNode.calendarAdd(ctx, a);
+            case "media":
+                return OpenClawNode.media(ctx, a.optString("command", a.optString("button", "play_pause")));
+            case "sensors":
+                return OpenClawNode.sensors(ctx);
             case "automation_start":
                 return AutomationStore.start(a.optString("name", "workflow"));
             case "automation_stop":
@@ -130,13 +148,17 @@ final class Phone {
             case "share":
                 return start(ctx, Intent.createChooser(new Intent(Intent.ACTION_SEND).setType("text/plain")
                         .putExtra(Intent.EXTRA_TEXT, a.optString("text")), null), "the share sheet is open");
-            case "sms":
-                return start(ctx, new Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:" + a.optString("number")))
+            case "sms": {
+                String target = OpenClawNode.resolveContactNumber(ctx, a.optString("number", a.optString("to", a.optString("contact"))));
+                return start(ctx, new Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:" + target))
                         .putExtra("sms_body", a.optString("text")),
-                        "the message to " + a.optString("number") + " is ready: the user sends it");
-            case "call":
-                return start(ctx, new Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + a.optString("number"))),
-                        "the dialer shows " + a.optString("number") + ": the user presses call");
+                        "the message to " + target + " is ready: the user sends it");
+            }
+            case "call": {
+                String target = OpenClawNode.resolveContactNumber(ctx, a.optString("number", a.optString("to", a.optString("contact"))));
+                return start(ctx, new Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + target)),
+                        "the dialer shows " + target + ": the user presses call");
+            }
             case "settings":
                 return settings(ctx, a.optString("page"));
             case "intent":
@@ -325,10 +347,10 @@ final class Phone {
         StatFs fs = new StatFs(Environment.getDataDirectory().getPath());
         DisplayMetrics dm = ctx.getResources().getDisplayMetrics();
         return String.format(Locale.ROOT, "%s %s, Android %s (API %d), %s; RAM %.1f GB (%.1f GB free); storage %.1f GB "
-                        + "free of %.1f GB; screen %dx%d; %s",
+                        + "free of %.1f GB; screen %dx%d; %s; %s",
                 Build.MANUFACTURER, Build.MODEL, Build.VERSION.RELEASE, Build.VERSION.SDK_INT, Build.SUPPORTED_ABIS[0],
                 mi.totalMem / 1e9, mi.availMem / 1e9, fs.getAvailableBytes() / 1e9, fs.getTotalBytes() / 1e9,
-                dm.widthPixels, dm.heightPixels, battery(ctx));
+                dm.widthPixels, dm.heightPixels, battery(ctx), OpenClawNode.nodeReadiness(ctx));
     }
 
     private static JSONObject clipboard(Context ctx, String text) throws Exception {
@@ -373,6 +395,7 @@ final class Phone {
         o.put("lat", best.getLatitude());
         o.put("lon", best.getLongitude());
         o.put("age_s", Math.max(0, (System.currentTimeMillis() - best.getTime()) / 1000));
+        o.put("maps_url", String.format(Locale.ROOT, "https://maps.google.com/?q=%.6f,%.6f", best.getLatitude(), best.getLongitude()));
         try {
             if (Geocoder.isPresent()) {
                 List<Address> found = new Geocoder(ctx, Locale.getDefault())
@@ -414,8 +437,10 @@ final class Phone {
             nb.setContentIntent(android.app.PendingIntent.getActivity(ctx, 7, open,
                     android.app.PendingIntent.FLAG_IMMUTABLE | android.app.PendingIntent.FLAG_UPDATE_CURRENT));
         }
+        int id = (int) (System.currentTimeMillis() % 100000) + 10;
+        OpenClawNode.attachInlineReply(ctx, nb, id);
         Notification n = nb.build();
-        nm.notify((int) (System.currentTimeMillis() % 100000) + 10, n);
+        nm.notify(id, n);
         return ok("notification posted");
     }
 
@@ -473,12 +498,19 @@ final class Phone {
             case "nfc":
                 action = Settings.ACTION_NFC_SETTINGS;
                 break;
+            case "contacts":
+            case "calendar":
+            case "permissions":
+                action = Settings.ACTION_APPLICATION_DETAILS_SETTINGS;
+                break;
             default:
                 action = Settings.ACTION_SETTINGS;
         }
         Intent i = new Intent(action);
         if (Settings.ACTION_APP_NOTIFICATION_SETTINGS.equals(action)) {
             i.putExtra(Settings.EXTRA_APP_PACKAGE, ctx.getPackageName());
+        } else if (Settings.ACTION_APPLICATION_DETAILS_SETTINGS.equals(action)) {
+            i.setData(Uri.fromParts("package", ctx.getPackageName(), null));
         }
         return start(ctx, i, "opened the " + (p.isEmpty() ? "settings" : p) + " settings");
     }
