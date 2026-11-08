@@ -17,11 +17,48 @@ final class TaskMemoryActions {
     private TaskMemoryActions() {
     }
 
+    /** What the actions need: the memory, the phone to carry steps out on, the routines learned here and a place to
+     *  count runs. On the phone: TaskMemoryDb, Phone.handle, TaskMemoryLearned, TaskMemoryUsage; in the tests, the
+     *  shipped library and a simulated app. */
+    interface Env {
+        TaskMemory memory() throws Exception;
+
+        TaskRunner.Device device();
+
+        List<TaskMemory.Proc> learned();
+
+        void used(String ref, boolean done);
+    }
+
+    static Env android(Context ctx) {
+        return new Env() {
+            @Override
+            public TaskMemory memory() throws Exception {
+                return TaskMemoryDb.memory(ctx);
+            }
+
+            @Override
+            public TaskRunner.Device device() {
+                return TaskRunner.android(ctx);
+            }
+
+            @Override
+            public List<TaskMemory.Proc> learned() {
+                return TaskMemoryLearned.all(ctx);
+            }
+
+            @Override
+            public void used(String ref, boolean done) {
+                TaskMemoryUsage.record(ctx, ref, done);
+            }
+        };
+    }
+
     static boolean handles(String action) {
         return action.startsWith("memory_") || "long_press".equals(action);
     }
 
-    static TaskMemory.Proc find(Context ctx, String ref) throws Exception {
+    static TaskMemory.Proc find(Env env, String ref) throws Exception {
         String key = ref == null ? "" : ref.trim();
         if (key.startsWith("tm:")) {
             key = key.substring(3);
@@ -30,12 +67,13 @@ final class TaskMemoryActions {
             throw new IllegalArgumentException("memory_get needs id: tm:<key> from a note or a search");
         }
         if (key.startsWith("learned.")) {
-            TaskMemory.Proc p = TaskMemoryLearned.get(ctx, key);
-            if (p != null) {
-                return p;
+            for (TaskMemory.Proc p : env.learned()) {
+                if (p.key.equals(key)) {
+                    return p;
+                }
             }
         }
-        TaskMemory.Proc p = TaskMemoryDb.memory(ctx).store().get(key);
+        TaskMemory.Proc p = env.memory().store().get(key);
         if (p == null) {
             throw new IllegalArgumentException("no procedure tm:" + key + " in the task memory");
         }
@@ -52,10 +90,24 @@ final class TaskMemoryActions {
     }
 
     static JSONObject handle(Context ctx, JSONObject a) throws Exception {
+        if ("long_press".equals(a.optString("action")) && a.has("x") && a.has("y")) {
+            PhoneControlService s = PhoneControlService.on;
+            if (s == null) {
+                throw new IllegalStateException("ACCESSIBILITY_OFF: a long press needs the accessibility service");
+            }
+            if (!TaskRunner.press(s, a.optInt("x"), a.optInt("y"), 900)) {
+                throw new IllegalStateException("Android did not take the long press");
+            }
+            return Phone.ok("long-pressed at " + a.optInt("x") + "," + a.optInt("y"));
+        }
+        return handle(android(ctx), a);
+    }
+
+    static JSONObject handle(Env env, JSONObject a) throws Exception {
         String action = a.optString("action");
         switch (action) {
             case "memory_match": {
-                TaskMemory tm = TaskMemoryDb.memory(ctx);
+                TaskMemory tm = env.memory();
                 String text = a.optString("text");
                 List<TaskMemory.Match> ranked = tm.rank(text, Math.max(1, Math.min(8, a.optInt("limit", 4))));
                 JSONObject o = new JSONObject().put("ok", true);
@@ -80,7 +132,7 @@ final class TaskMemoryActions {
                 return o;
             }
             case "memory_search": {
-                TaskMemory tm = TaskMemoryDb.memory(ctx);
+                TaskMemory tm = env.memory();
                 List<TaskMemory.Match> ranked = tm.rank(a.optString("text", a.optString("query")),
                         Math.max(1, Math.min(20, a.optInt("limit", 8))));
                 JSONArray results = new JSONArray();
@@ -98,19 +150,19 @@ final class TaskMemoryActions {
                         .put("text", sb.length() == 0 ? "nothing in the task memory" : sb.toString().trim());
             }
             case "memory_get": {
-                TaskMemory.Proc p = find(ctx, a.optString("id"));
+                TaskMemory.Proc p = find(env, a.optString("id"));
                 return new JSONObject().put("ok", true).put("procedure", TaskMemory.toJson(p, true))
                         .put("text", "tm:" + p.ref() + " (" + TaskMemory.sourceName(p.src) + "): " + p.goal + "\nSteps: "
                                 + TaskMemory.describe(p));
             }
             case "memory_run": {
-                TaskMemory.Proc p = find(ctx, a.optString("id"));
-                TaskRunner.Result r = TaskRunner.run(ctx, p, values(a), null, null);
-                TaskMemoryUsage.record(ctx, p.ref(), r.done);
+                TaskMemory.Proc p = find(env, a.optString("id"));
+                TaskRunner.Result r = TaskRunner.run(env.device(), p, values(a), null, null);
+                env.used(p.ref(), r.done);
                 return r.toJson();
             }
             case "memory_stats": {
-                TaskMemory tm = TaskMemoryDb.memory(ctx);
+                TaskMemory tm = env.memory();
                 JSONObject o = new JSONObject().put("ok", true);
                 JSONObject cats = new JSONObject();
                 for (TaskMemory.Category c : tm.store().categories()) {
@@ -119,7 +171,7 @@ final class TaskMemoryActions {
                 JSONObject srcs = new JSONObject();
                 int total = 0;
                 for (TaskMemory.Source s : tm.store().sources()) {
-                    int n = "learned".equals(s.id) ? TaskMemoryLearned.all(ctx).size() : s.n;
+                    int n = "learned".equals(s.id) ? env.learned().size() : s.n;
                     srcs.put(s.id, n);
                     total += n;
                 }
@@ -127,20 +179,10 @@ final class TaskMemoryActions {
                 return o.put("text", "task memory: " + total + " procedures");
             }
             case "long_press": {
-                PhoneControlService s = PhoneControlService.on;
-                if (a.has("x") && a.has("y")) {
-                    if (s == null) {
-                        throw new IllegalStateException("ACCESSIBILITY_OFF: a long press needs the accessibility service");
-                    }
-                    if (!TaskRunner.press(s, a.optInt("x"), a.optInt("y"), 900)) {
-                        throw new IllegalStateException("Android did not take the long press");
-                    }
-                    return Phone.ok("long-pressed at " + a.optInt("x") + "," + a.optInt("y"));
-                }
-                if (!TaskRunner.longPress(a.optString("text"))) {
+                if (!env.device().longPress(a.optString("text"))) {
                     throw new IllegalArgumentException("nothing on the screen says \"" + a.optString("text") + "\"");
                 }
-                return Phone.ok("long-pressed \"" + a.optString("text") + "\"");
+                return new JSONObject().put("ok", true).put("text", "long-pressed \"" + a.optString("text") + "\"");
             }
             default:
                 throw new IllegalArgumentException("unknown task-memory action \"" + action + "\"");

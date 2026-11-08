@@ -13,7 +13,8 @@ PROMPT_ADDITION = (
     "- A \"Task memory tm:...\" note under the request is a procedure from MusabAI's task memory (curated steps for "
     "apps like Facebook, WhatsApp, Instagram and Gmail, and recorded demonstrations from AndroidControl, Mind2Web and "
     "InSTA-150K). If it is runnable and fits, call phone_routine with that id and this request's values ({1}, {2}...: "
-    "the post's text, the contact, the search) in one call; if it stops, continue by hand from the screen it shows. "
+    "the post's text, the contact, the search) in one call. When it says done and checked, the task is complete: "
+    "reply in one line without checking again. If it stops, continue by hand from the screen it shows. "
     "A guidance note lists steps to follow with the phone tool, adapting to the screen. phone_routine action=search "
     "with query finds other procedures when no note came.\n"
 )

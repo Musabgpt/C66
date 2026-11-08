@@ -102,6 +102,7 @@ class TaskMemoryTests(unittest.TestCase):
         out, meta = tools.call(self.ctx(a), "phone_routine", {"id": "tm:cur.facebook.post", "values": ["صباح الخير"]})
         self.assertIn("Task memory tm:cur.facebook.post done", out)
         self.assertIn("Screen now:", out)
+        self.assertIn("nothing is left to do", out)
         self.assertTrue(meta["done"])
         self.assertEqual(self.app.calls[-1], ("memory_run", {"id": "tm:cur.facebook.post", "values": ["صباح الخير"]}))
 

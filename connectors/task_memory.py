@@ -79,7 +79,9 @@ def run(ctx, ref, values=None):
     if r.get("stopped_at", -1) is not None and int(r.get("stopped_at", -1)) >= 0:
         tail = "Continue by hand from this screen."
     elif done:
-        tail = ""
+        # a small model otherwise goes on looking for a Post button that was already pressed
+        tail = ("Finished and checked: nothing is left to do on the phone for this request. Tell the user in one line, "
+                "in the language of their request, what was done.")
     else:
         tail = "Check the screen and finish by hand before you say it is done."
     out = "%s: %s" % (head, text)
