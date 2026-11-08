@@ -20,6 +20,21 @@ This development line starts from successful Action 216 (`d8a270382c51e009148fc2
 - Model transport uses a real fallback pool. Kilo Auto Free is attempted without a key; OpenRouter, Groq, Cerebras, Gemini and Hugging Face free tiers are used when their own environment key is present. Overload, timeout, network and HTTP failures move to the next configured provider and the successful provider is recorded. Free-tier quotas and model names can change, so unconfigured entries are skipped instead of shown as connected.
 - The built-in MCP catalog includes the official Microsoft Playwright MCP repository and the official MCP reference server templates (filesystem, memory and fetch). `/api/mcp-bundles` reports actual local runtime availability. Playwright/reference servers are started only where `node`/`npx` exists; no fake tools or hidden downloads are claimed. MusabAI's native files, memory and phone capabilities remain available when those runtimes are absent.
 
+## Task memory (ذاكرة المهام)
+
+The assistant has a categorized library of how tasks are done on the phone and the web, shipped in the APK as one
+SQLite database (`android-lite/app/src/main/assets/task_memory/library.db.gzip`, 163,085 procedures in 21 categories):
+57 hand-written procedures for Facebook, WhatsApp, Instagram, Telegram, X, Gmail, YouTube, Play Store and settings
+(button labels in English and Arabic), 15,273 AndroidControl demonstrations with every tap resolved to the label it hit,
+1,009 Mind2Web website tasks (train split) and 146,746 InSTA-150K website goals.
+
+- A phone request that fits a procedure reaches the model with it ("افتح فيسبوك وانشر منشور يقول صباح الخير" comes with
+  the Facebook post procedure and its text), and the model runs it with `phone_routine id=tm:...`. The app carries out
+  each step, trying every label, and stops where the screen differs so the model goes on by hand.
+- **Task Memory** has its own launcher icon: categories, sources, search, "try a request", procedure details and a Run
+  button (it confirms before posting or sending). The phone home screen also has a Task memory group.
+- Rebuilding the library from the datasets and how it is tested: [tools/task_memory](tools/task_memory/README.md).
+
 ## Behavior profile
 
 [agent_prompt.md](connectors/agent_prompt.md) adapts the user's uploaded `claude-code-cloud-fable-5.1.md` behavior instructions to MusabAI's actual tools and identity. The upload also contained another person's account/session context, repository directions and tool catalogs; those are not runtime configuration for this application. They are not included in the APK or this repository.

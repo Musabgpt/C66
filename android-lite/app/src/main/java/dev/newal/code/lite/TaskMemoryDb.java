@@ -46,6 +46,22 @@ final class TaskMemoryDb implements TaskMemoryStore {
         return shared != null;
     }
 
+    /** Opens the memory in the background (the first time after an install it unpacks the library, about a
+     *  second): the agent's first phone request then finds it ready. */
+    static void warm(Context ctx) {
+        Context app = ctx.getApplicationContext();
+        Thread t = new Thread(() -> {
+            try {
+                memory(app);
+            } catch (Exception ignored) {
+                // the memory screen and the agent say what went wrong when they open it
+            }
+        }, "task-memory-warm");
+        t.setPriority(Thread.MIN_PRIORITY);
+        t.setDaemon(true);
+        t.start();
+    }
+
     /** The unpacked library, unpacked now when it is missing or from an older build. */
     static File install(Context ctx) throws Exception {
         File dir = new File(ctx.getFilesDir(), "task_memory");
