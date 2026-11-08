@@ -34,6 +34,74 @@ final class TaskRunner {
         void step(int index, int total, String what);
     }
 
+    /** What the runner needs from the phone: the phone tool's actions, launching an app, what is in front. On the
+     *  phone it is Phone.handle and Android; the unit tests give it a simulated app (TaskRunnerTest). */
+    interface Device {
+        JSONObject act(JSONObject action) throws Exception;
+
+        /** Starts the app when it is installed; false when it is not. */
+        boolean launch(String pkg) throws Exception;
+
+        /** The package in front, "" when unknown (no accessibility service). */
+        String foreground();
+
+        /** Whether the screen can be read and tapped (the accessibility service is on). */
+        boolean screenControl();
+
+        boolean longPress(String text) throws Exception;
+
+        void sleep(long ms) throws InterruptedException;
+    }
+
+    static Device android(Context ctx) {
+        return new Device() {
+            @Override
+            public JSONObject act(JSONObject action) throws Exception {
+                return Phone.handle(ctx, action);
+            }
+
+            @Override
+            public boolean launch(String pkg) {
+                Intent launch = ctx.getPackageManager().getLaunchIntentForPackage(pkg);
+                if (launch == null) {
+                    return false;
+                }
+                launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
+                ctx.startActivity(launch);
+                return true;
+            }
+
+            @Override
+            public String foreground() {
+                PhoneControlService s = PhoneControlService.on;
+                if (s == null) {
+                    return "";
+                }
+                try {
+                    AccessibilityNodeInfo root = s.getRootInActiveWindow();
+                    return root == null || root.getPackageName() == null ? "" : root.getPackageName().toString();
+                } catch (RuntimeException e) {
+                    return "";
+                }
+            }
+
+            @Override
+            public boolean screenControl() {
+                return PhoneControlService.on != null || A11y.enabled(ctx);
+            }
+
+            @Override
+            public boolean longPress(String text) throws Exception {
+                return TaskRunner.longPress(text);
+            }
+
+            @Override
+            public void sleep(long ms) throws InterruptedException {
+                Thread.sleep(ms);
+            }
+        };
+    }
+
     static final class Result {
         boolean ok;
         boolean done;
@@ -97,6 +165,10 @@ final class TaskRunner {
     }
 
     static Result run(Context ctx, TaskMemory.Proc p, List<String> values, Listener listener, AtomicBoolean cancel) {
+        return run(android(ctx), p, values, listener, cancel);
+    }
+
+    static Result run(Device ctx, TaskMemory.Proc p, List<String> values, Listener listener, AtomicBoolean cancel) {
         Result r = new Result();
         JSONArray steps = p.steps();
         if (!p.exec) {
@@ -115,7 +187,7 @@ final class TaskRunner {
             needsScreen |= a.equals("tap") || a.equals("type") || a.equals("long_press") || a.equals("key")
                     || a.equals("scroll");
         }
-        if (needsScreen && PhoneControlService.on == null && !A11y.enabled(ctx)) {
+        if (needsScreen && !ctx.screenControl()) {
             r.message = "ACCESSIBILITY_OFF: the taps need MusabAI's phone-control accessibility service. Turn it on in "
                     + "Settings > Accessibility > Installed apps > NewAl Code: phone control.";
             return r;
@@ -186,19 +258,19 @@ final class TaskRunner {
         return a;
     }
 
-    private static JSONObject call(Context ctx, String action, Object... kv) throws Exception {
+    private static JSONObject call(Device ctx, String action, Object... kv) throws Exception {
         JSONObject o = new JSONObject().put("action", action);
         for (int i = 0; i + 1 < kv.length; i += 2) {
             o.put((String) kv[i], kv[i + 1]);
         }
-        JSONObject res = Phone.handle(ctx, o);
+        JSONObject res = ctx.act(o);
         if (res != null && !res.optBoolean("ok", true)) {
             throw new IllegalStateException(res.optString("error", res.optString("text", action + " failed")));
         }
         return res;
     }
 
-    private static String step(Context ctx, TaskMemory.Proc p, JSONObject s, List<String> values) throws Exception {
+    private static String step(Device ctx, TaskMemory.Proc p, JSONObject s, List<String> values) throws Exception {
         String a = s.optString("a");
         switch (a) {
             case "open_app":
@@ -210,7 +282,7 @@ final class TaskRunner {
                 } else {
                     call(ctx, "open_url", "url", url);
                 }
-                Thread.sleep(1200);
+                ctx.sleep(1200);
                 return "opened " + url;
             }
             case "tap":
@@ -239,7 +311,7 @@ final class TaskRunner {
                 call(ctx, a, "direction", s.optString("direction", "down"));
                 return a + " " + s.optString("direction", "down");
             case "wait":
-                Thread.sleep(Math.max(0, Math.min(10, s.optInt("seconds", 1))) * 1000L);
+                ctx.sleep(Math.max(0, Math.min(10, s.optInt("seconds", 1))) * 1000L);
                 return "waited";
             case "phone": {
                 JSONObject o = new JSONObject();
@@ -251,7 +323,7 @@ final class TaskRunner {
                     Object v = s.get(k);
                     o.put(k, v instanceof String ? fill((String) v, values, false) : v);
                 }
-                JSONObject res = Phone.handle(ctx, o);
+                JSONObject res = ctx.act(o);
                 if (res != null && !res.optBoolean("ok", true)) {
                     throw new IllegalStateException(res.optString("error", "failed"));
                 }
@@ -262,7 +334,7 @@ final class TaskRunner {
         }
     }
 
-    private static String openApp(Context ctx, TaskMemory.Proc p, JSONObject s) throws Exception {
+    private static String openApp(Device ctx, TaskMemory.Proc p, JSONObject s) throws Exception {
         List<String> pkgs = new ArrayList<>();
         if (!s.optString("pkg").isEmpty()) {
             pkgs.add(s.optString("pkg"));
@@ -279,45 +351,35 @@ final class TaskRunner {
             }
         }
         for (String pk : pkgs) {
-            Intent launch = ctx.getPackageManager().getLaunchIntentForPackage(pk);
-            if (launch == null) {
-                continue;
+            if (ctx.launch(pk)) {
+                waitFor(ctx, pk, 8000);
+                return "opened " + s.optString("name", pk) + " (" + pk + ")";
             }
-            launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
-            ctx.startActivity(launch);
-            waitFor(pk, 8000);
-            return "opened " + s.optString("name", pk) + " (" + pk + ")";
         }
         String name = s.optString("name", p.app);
         call(ctx, "open_app", "name", name);
-        Thread.sleep(1500);
+        ctx.sleep(1500);
         return "opened " + name;
     }
 
     /** Waits until the app is in front (or the time is up): its first screen has to be there before a tap. */
-    private static void waitFor(String pkg, long ms) throws InterruptedException {
-        long until = System.currentTimeMillis() + ms;
-        Thread.sleep(700);
-        while (System.currentTimeMillis() < until) {
-            PhoneControlService s = PhoneControlService.on;
-            if (s == null) {
-                Thread.sleep(1500);
+    private static void waitFor(Device ctx, String pkg, long ms) throws InterruptedException {
+        ctx.sleep(700);
+        for (long waited = 700; waited < ms; waited += 300) {
+            String front = ctx.foreground();
+            if (front.isEmpty() && !ctx.screenControl()) {
+                ctx.sleep(1500);
                 return;
             }
-            try {
-                AccessibilityNodeInfo root = s.getRootInActiveWindow();
-                if (root != null && pkg.contentEquals(root.getPackageName() == null ? "" : root.getPackageName())) {
-                    Thread.sleep(600);
-                    return;
-                }
-            } catch (RuntimeException ignored) {
-                // between two windows
+            if (pkg.equals(front)) {
+                ctx.sleep(600);
+                return;
             }
-            Thread.sleep(300);
+            ctx.sleep(300);
         }
     }
 
-    private static String tap(Context ctx, JSONObject s, List<String> values, boolean longPress) throws Exception {
+    private static String tap(Device ctx, JSONObject s, List<String> values, boolean longPress) throws Exception {
         JSONArray t = s.optJSONArray("t");
         if (t == null || t.length() == 0) {
             if (s.optBoolean("optional")) {
@@ -333,11 +395,11 @@ final class TaskRunner {
         if (longPress) {
             for (int round = 0; round < rounds; round++) {
                 for (String l : labels) {
-                    if (longPress(l)) {
+                    if (ctx.longPress(l)) {
                         return "long-pressed \"" + l + "\"";
                     }
                 }
-                Thread.sleep(700);
+                ctx.sleep(700);
             }
         } else {
             String hit = tapAny(ctx, labels, rounds);
@@ -351,13 +413,22 @@ final class TaskRunner {
         throw new IllegalStateException("nothing on the screen says " + quoteAll(labels));
     }
 
-    /** Taps the first label that is on the screen, trying them all, rounds times about 0.7 s apart. */
-    private static String tapAny(Context ctx, String[] labels, int rounds) throws Exception {
+    /** Taps the label that is on the screen, rounds times about 0.7 s apart. Of a step's labels the one that fits an
+     *  item best is taken (the same words, then the start, then inside): "POST" must not tap the title "Create post"
+     *  when the button says "نشر". */
+    private static String tapAny(Device ctx, String[] labels, int rounds) throws Exception {
         for (int round = 0; round < rounds; round++) {
+            String best = bestLabel(screen(ctx), labels);
+            List<String> order = new ArrayList<>();
+            if (best != null) {
+                order.add(best);
+            }
             for (String l : labels) {
-                if (l.trim().isEmpty()) {
-                    continue;
+                if (!l.trim().isEmpty() && !order.contains(l) && best == null) {
+                    order.add(l);                  // no screen to compare with: each label in turn
                 }
+            }
+            for (String l : order) {
                 try {
                     call(ctx, "tap", "text", l);
                     return l;
@@ -369,10 +440,47 @@ final class TaskRunner {
                 }
             }
             if (round + 1 < rounds) {
-                Thread.sleep(700);
+                ctx.sleep(700);
             }
         }
         return null;
+    }
+
+    private static final java.util.regex.Pattern ITEM =
+            java.util.regex.Pattern.compile("^\\[(\\d+)\\]\\s+(.*?)(?:\\s+·\\s+[^·]*)?$");
+
+    /** The label that best fits an item of the screen listing, null when none fits (or there is no listing). */
+    static String bestLabel(String screen, String[] labels) {
+        if (screen == null || screen.isEmpty()) {
+            return null;
+        }
+        List<String> items = new ArrayList<>();
+        for (String line : screen.split("\n")) {
+            java.util.regex.Matcher m = ITEM.matcher(line.trim());
+            if (m.matches()) {
+                String t = m.group(2).trim();
+                if (t.startsWith("hint: ")) {
+                    t = t.substring(6);
+                }
+                items.add(TextFold.fold(t));
+            }
+        }
+        String best = null;
+        int bestScore = 0;
+        for (String l : labels) {
+            String f = TextFold.fold(l.trim());
+            if (f.isEmpty()) {
+                continue;
+            }
+            for (String it : items) {
+                int s = it.equals(f) ? 3 : it.startsWith(f) ? 2 : it.contains(f) ? 1 : 0;
+                if (s > bestScore) {
+                    bestScore = s;
+                    best = l;
+                }
+            }
+        }
+        return best;
     }
 
     private static String quoteAll(String[] labels) {
@@ -439,9 +547,9 @@ final class TaskRunner {
         return null;
     }
 
-    private static String screen(Context ctx) {
+    private static String screen(Device ctx) {
         try {
-            JSONObject o = Phone.handle(ctx, new JSONObject().put("action", "screen"));
+            JSONObject o = ctx.act(new JSONObject().put("action", "screen"));
             return o == null ? "" : o.optString("text", "");
         } catch (Exception e) {
             return "";
@@ -449,11 +557,11 @@ final class TaskRunner {
     }
 
     /** The screen once the checked text is on it (a post or a message can take a moment to show). */
-    private static String settle(Context ctx, String want) {
+    private static String settle(Device ctx, String want) {
         String screen = screen(ctx);
         for (int i = 0; i < 5 && !want.isEmpty() && !shows(screen, want); i++) {
             try {
-                Thread.sleep(600);
+                ctx.sleep(600);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 break;

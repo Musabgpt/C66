@@ -234,6 +234,25 @@ public class TaskMemoryActivity extends Activity {
         return String.format(Locale.US, "%,d", n);
     }
 
+    /** A label of another direction inside Arabic text (FSI...PDI): "What's on your mind?" keeps its "?" at its end. */
+    static String iso(String s) {
+        return "\u2068" + s + "\u2069";
+    }
+
+    /** A label in «», a blank alone (‹نص المنشور›) as it is. */
+    static String quoted(String s) {
+        return s.startsWith("‹") && s.endsWith("›") ? iso(s) : "«" + iso(s) + "»";
+    }
+
+    /** {1}, {2}... shown as the names of the blanks ("نص المنشور"). */
+    static String named(String s, List<String> names) {
+        String out = s;
+        for (int i = 0; i < names.size(); i++) {
+            out = out.replace("{" + (i + 1) + "}", "‹" + names.get(i) + "›");
+        }
+        return out;
+    }
+
     View topBar(String title, boolean withBack) {
         LinearLayout bar = row();
         bar.setPadding(dp(16), dp(12), dp(16), dp(8));
@@ -460,9 +479,11 @@ public class TaskMemoryActivity extends Activity {
             TextView about = text(s.aboutAr, 13, MUTED, false);
             about.setPadding(0, dp(6), 0, 0);
             c.addView(about);
-            String extra = (s.nExec > 0 ? num(s.nExec) + " قابل للتنفيذ مباشرة" : "إرشادات يخطط منها المساعد")
+            boolean learnedSource = "learned".equals(s.id);
+            String extra = learnedSource ? "تزيد تلقائيًا بعد كل مهمة هاتف تنجح"
+                    : (s.nExec > 0 ? num(s.nExec) + " قابل للتنفيذ مباشرة" : "إرشادات يخطط منها المساعد")
                     + (s.license.isEmpty() ? "" : " · رخصة " + s.license);
-            TextView e = text(extra, 12, s.nExec > 0 ? GREEN : AMBER, false);
+            TextView e = text(extra, 12, learnedSource || s.nExec > 0 ? GREEN : AMBER, false);
             e.setPadding(0, dp(6), 0, 0);
             c.addView(e);
             c.setOnClickListener(v -> {
@@ -528,12 +549,12 @@ public class TaskMemoryActivity extends Activity {
         List<String> names = best.proc.slotNames();
         for (int i = 0; i < names.size(); i++) {
             String v = i < best.values.size() ? best.values.get(i) : "";
-            TextView sv = text("• " + names.get(i) + ": " + (v.isEmpty() ? "(يسأل عنه المساعد)" : "«" + v + "»"), 13,
+            TextView sv = text("• " + names.get(i) + ": " + (v.isEmpty() ? "(يسأل عنه المساعد)" : "«" + iso(v) + "»"), 13,
                     v.isEmpty() ? MUTED : CYAN, false);
             sv.setPadding(0, dp(4), 0, 0);
             box.addView(sv);
         }
-        TextView steps = text(TaskMemory.describe(best.proc), 12, MUTED, false);
+        TextView steps = text(named(TaskMemory.describe(best.proc), best.proc.slotNames()), 12, MUTED, false);
         steps.setPadding(0, dp(8), 0, 0);
         steps.setTextDirection(View.TEXT_DIRECTION_LTR);
         box.addView(steps);
@@ -870,7 +891,7 @@ public class TaskMemoryActivity extends Activity {
             if (s == null) {
                 continue;
             }
-            steps.addView(stepRow(i + 1, s), wide(10));
+            steps.addView(stepRow(i + 1, s, names), wide(10));
         }
         body.addView(steps, wide(12));
 
@@ -899,7 +920,7 @@ public class TaskMemoryActivity extends Activity {
         setPage(scroll);
     }
 
-    View stepRow(int n, JSONObject s) {
+    View stepRow(int n, JSONObject s, List<String> names) {
         LinearLayout r = row();
         r.setGravity(Gravity.TOP);
         TextView num = text(String.valueOf(n), 13, Color.WHITE, true);
@@ -912,13 +933,13 @@ public class TaskMemoryActivity extends Activity {
         StringBuilder main = new StringBuilder(icon(a) + "  " + verb(a));
         JSONArray t = s.optJSONArray("t");
         if (t != null && t.length() > 0) {
-            main.append(" «").append(t.optString(0)).append("»");
+            main.append(' ').append(quoted(named(t.optString(0), names)));
         } else if (s.has("name")) {
-            main.append(" ").append(s.optString("name"));
+            main.append(" ").append(iso(s.optString("name")));
         } else if (s.has("text")) {
-            main.append(" «").append(s.optString("text")).append("»");
+            main.append(' ').append(quoted(named(s.optString("text"), names)));
         } else if (s.has("url")) {
-            main.append(" ").append(s.optString("url"));
+            main.append(" ").append(iso(named(s.optString("url"), names)));
         } else if (s.has("direction")) {
             main.append(" ").append(s.optString("direction"));
         } else if ("phone".equals(a)) {
@@ -934,12 +955,12 @@ public class TaskMemoryActivity extends Activity {
         if (t != null && t.length() > 1) {
             StringBuilder alt = new StringBuilder("أو: ");
             for (int i = 1; i < t.length() && i < 6; i++) {
-                alt.append(i > 1 ? " · " : "").append(t.optString(i));
+                alt.append(i > 1 ? " · " : "").append(iso(named(t.optString(i), names)));
             }
             col.addView(text(alt.toString(), 12, MUTED, false));
         }
         if (s.has("hint")) {
-            col.addView(text(s.optString("hint"), 12, MUTED, false));
+            col.addView(text(iso(s.optString("hint")), 12, MUTED, false));
         }
         r.addView(col, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         return r;

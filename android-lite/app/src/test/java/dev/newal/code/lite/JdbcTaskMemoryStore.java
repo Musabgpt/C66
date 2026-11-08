@@ -26,12 +26,12 @@ final class JdbcTaskMemoryStore implements TaskMemoryStore {
         db = DriverManager.getConnection("jdbc:sqlite:" + file.getAbsolutePath());
     }
 
-    /** The asset (library.db.gz), unpacked once into a temporary file. */
+    /** The asset (library.db.gzip), unpacked once into a temporary file. */
     static synchronized JdbcTaskMemoryStore shipped() throws Exception {
         File gz = null;
-        for (String path : new String[] {"src/main/assets/task_memory/library.db.gz",
-                "android-lite/app/src/main/assets/task_memory/library.db.gz",
-                "app/src/main/assets/task_memory/library.db.gz"}) {
+        for (String path : new String[] {"src/main/assets/task_memory/library.db.gzip",
+                "android-lite/app/src/main/assets/task_memory/library.db.gzip",
+                "app/src/main/assets/task_memory/library.db.gzip"}) {
             File f = new File(path);
             if (f.isFile()) {
                 gz = f;
@@ -39,7 +39,7 @@ final class JdbcTaskMemoryStore implements TaskMemoryStore {
             }
         }
         if (gz == null) {
-            throw new IllegalStateException("library.db.gz not found from " + new File(".").getAbsolutePath());
+            throw new IllegalStateException("library.db.gzip not found from " + new File(".").getAbsolutePath());
         }
         File out = new File(System.getProperty("java.io.tmpdir"), "task_memory_test_" + gz.length() + ".db");
         if (!out.isFile()) {

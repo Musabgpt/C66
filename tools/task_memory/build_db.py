@@ -1,7 +1,7 @@
 """Builds the task memory: one SQLite database, sorted into categories, that the app ships and the agent searches.
 
   python3 build_db.py --out library.db --androidcontrol androidcontrol.jsonl --mind2web mind2web.jsonl \
-      --insta insta150k.jsonl [--gzip assets/task_memory/library.db.gz]
+      --insta insta150k.jsonl [--gzip assets/task_memory/library.db.gzip]
 
 Tables: procs (every procedure, with its steps as JSON), procs_fts (FTS4 over its search terms), vocab (how many
 procedures use each term, for ranking), lexicon (Arabic word -> English words), apps (name, package, category, the

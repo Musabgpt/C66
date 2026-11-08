@@ -81,6 +81,11 @@ android {
         }
     }
 
+    androidResources {
+        // the task memory's library is gzip already: stored as it is, and readable in place (TaskMemoryDb)
+        noCompress += "gzip"
+    }
+
     packaging {
         // The programs run from the app's native library folder: Android must unpack them at install.
         jniLibs { useLegacyPackaging = true }

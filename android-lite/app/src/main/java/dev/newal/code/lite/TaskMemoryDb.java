@@ -18,12 +18,13 @@ import java.util.Map;
 import java.util.zip.GZIPInputStream;
 
 /**
- * The task memory on the phone: the library the APK ships (assets/task_memory/library.db.gz) unpacked once into the
+ * The task memory on the phone: the library the APK ships (assets/task_memory/library.db.gzip) unpacked once into the
  * app's files (again after an update brings a new one) and read with Android's SQLite, read-only. memory(ctx) is the
- * one shared TaskMemory; the first call unpacks (about a second), later ones are instant.
+ * one shared TaskMemory; the first call unpacks (about a second), later ones are instant. The asset is not named
+ * ".gz": the Android build un-gzips such assets on its own and renames them, and the app would not find it.
  */
 final class TaskMemoryDb implements TaskMemoryStore {
-    private static final String ASSET = "task_memory/library.db.gz";
+    private static final String ASSET = "task_memory/library.db.gzip";
     private static TaskMemory shared;
     private final SQLiteDatabase db;
 
@@ -81,6 +82,11 @@ final class TaskMemoryDb implements TaskMemoryStore {
     }
 
     private static long assetLength(Context ctx) {
+        try (android.content.res.AssetFileDescriptor fd = ctx.getAssets().openFd(ASSET)) {
+            return fd.getLength();                  // stored uncompressed (build.gradle.kts noCompress)
+        } catch (Exception compressed) {
+            // a build that compressed it: count it
+        }
         try (InputStream in = ctx.getAssets().open(ASSET)) {
             long n = 0;
             byte[] buf = new byte[1 << 16];

@@ -1,7 +1,8 @@
 # Task memory (ذاكرة المهام)
 
 The library of procedures the assistant uses on the phone and the web, built from four sources into one SQLite
-database that the APK ships (`android-lite/app/src/main/assets/task_memory/library.db.gz`).
+database that the APK ships (`android-lite/app/src/main/assets/task_memory/library.db.gzip`; not `.gz`, which the
+Android build would un-gzip and rename on its own).
 
 | Source | What it gives | License | In the library |
 |---|---|---|---|
@@ -38,7 +39,7 @@ python3 convert_mind2web.py mind2web_compact.jsonl mind2web.jsonl
 # InSTA-150K: data-for-agents/insta-150k-v1 parquet files
 python3 convert_insta.py insta150k.jsonl train.parquet test.parquet
 python3 build_db.py --out library.db --androidcontrol androidcontrol.jsonl --mind2web mind2web.jsonl \
-    --insta insta150k.jsonl --gzip ../../android-lite/app/src/main/assets/task_memory/library.db.gz
+    --insta insta150k.jsonl --gzip ../../android-lite/app/src/main/assets/task_memory/library.db.gzip
 ```
 
 `textnorm.py` and `TaskMemoryText.java` must make the same search terms: `task_memory_tests.py` and

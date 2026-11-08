@@ -19,7 +19,7 @@ import curated  # noqa: E402
 import knowledge as K  # noqa: E402
 import textnorm as T  # noqa: E402
 
-ASSET = os.path.join(HERE, "..", "..", "android-lite", "app", "src", "main", "assets", "task_memory", "library.db.gz")
+ASSET = os.path.join(HERE, "..", "..", "android-lite", "app", "src", "main", "assets", "task_memory", "library.db.gzip")
 
 SCREEN = '''windows {
   bounds_in_screen {

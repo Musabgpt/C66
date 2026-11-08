@@ -34,5 +34,14 @@ def apply(src, package, replace):
     if "Task memory tm:" not in text:
         lean_md.write_text(text.replace(anchor, PROMPT_ADDITION + anchor, 1), encoding="utf-8")
 
+    # The pinned engine's test counts the phone calls of a turn: the task-memory lookup under the request is a read
+    # of the app's library, not an action on the phone, so it is left out of that count.
+    replace(package.parent / "tests/test_newal_code.py",
+            '        self.assertEqual([c["action"] for c in self.calls], ["screen", "tap"])\n'
+            '        self.assertEqual(self.calls[1]["item"], 1)\n',
+            '        acted = [c for c in self.calls if not c["action"].startswith("memory_")]   # the task memory is read\n'
+            '        self.assertEqual([c["action"] for c in acted], ["screen", "tap"])\n'
+            '        self.assertEqual(acted[1]["item"], 1)\n')
+
     with open(package / "claude_parity_tests.py", "a", encoding="utf-8") as f:
         f.write("\nfrom .ext_task_memory_tests import TaskMemoryTests  # noqa: E402,F401 - run with the parity tests in CI\n")
