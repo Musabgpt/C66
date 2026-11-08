@@ -1,16 +1,26 @@
-"""OpenClaw Node capabilities for MusabAI on Android (derived from REA analysis of ai.openclaw.app v2026.10.70).
+"""OpenClaw Node capabilities for MusabAI on Android.
 
-Adds first-class on-device node actions to the `phone` tool:
-* notification_reply: reply directly to a replyable notification (WhatsApp, Telegram, Messages) via Android RemoteInput
-  in the background without opening the app or touching the screen.
-* notification_action / notification_dismiss: trigger a notification action button or dismiss a notification.
-* contacts / contact_add: search device contacts (with Arabic/Latin folded matching) or open the contact editor.
-* calendar / calendar_add: read upcoming calendar agenda events or schedule a new event.
-* location: read the phone's current GPS/network location and Google Maps link.
-* media: control active media playback (play_pause, play, pause, next, previous, stop, mute).
-* sensors: read hardware sensors (step counter, accelerometer, light, pressure, proximity) and battery state.
+Upgrades MusabAI's `phone` tool with fast, permission-safe background node actions inspired by OpenClaw Node
+(ai.openclaw.app):
+- `notification_reply`: reply directly to WhatsApp, Telegram, Messages, or any notification with a RemoteInput
+  action in the background — without opening the app or navigating the UI.
+- `notification_action`: trigger a secondary button on an active notification by label.
+- `notification_dismiss`: dismiss a specific notification by sender/title/app or `"all"`.
+- `contacts` / `contact_add`: search saved contacts with Arabic/English text folding (`TextFold`), or open the
+  pre-filled contact insert sheet. `sms` and `call` also resolve contact names automatically.
+- `calendar` / `calendar_add`: read upcoming agenda events from `CalendarContract.Instances` or add a calendar event.
+- `location`: read last-known device GPS/network coordinates with a ready-to-open Google Maps link.
+- `media`: control active media playback (`play_pause`, `play`, `pause`, `next`, `previous`, `stop`).
+- `sensors`: read step counter and device environment/motion sensors (`SensorManager`).
 """
-from . import phone_fast, tools
+
+NODE_LOOK = (
+    "notifications_read",
+    "contacts",
+    "calendar",
+    "location",
+    "sensors",
+)
 
 NODE_ACTIONS = (
     "notification_reply",
@@ -25,119 +35,136 @@ NODE_ACTIONS = (
     "sensors",
 )
 
-READ_ONLY_NODE_ACTIONS = ("contacts", "calendar", "location", "sensors")
-
-ACTION_ALIASES = {
-    "reply_notification": "notification_reply",
-    "notification_send": "notification_reply",
-    "notifications_reply": "notification_reply",
-    "dismiss_notification": "notification_dismiss",
-    "notifications_dismiss": "notification_dismiss",
-    "clear_notification": "notification_dismiss",
-    "trigger_notification": "notification_action",
-    "search_contacts": "contacts",
-    "find_contact": "contacts",
-    "list_contacts": "contacts",
-    "get_contacts": "contacts",
-    "read_contacts": "contacts",
-    "add_contact": "contact_add",
-    "create_contact": "contact_add",
-    "read_calendar": "calendar",
-    "get_calendar": "calendar",
-    "list_events": "calendar",
-    "calendar_events": "calendar",
-    "add_event": "calendar_add",
-    "create_event": "calendar_add",
-    "event_create": "calendar_add",
-    "schedule_event": "calendar_add",
-    "get_location": "location",
-    "read_location": "location",
-    "current_location": "location",
-    "gps": "location",
-    "media_control": "media",
-    "play_pause": "media",
-    "read_sensors": "sensors",
-    "get_sensors": "sensors",
-    "motion": "sensors",
-    "steps": "sensors",
+# Kept compact (type-only) so json.dumps(REGISTRY["phone"].schema()) stays well under the 2000-byte phone budget.
+NODE_PARAMS = {
+    "query": {"type": "string"},
+    "target": {"type": "string"},
+    "button": {"type": "string"},
+    "command": {"type": "string"},
+    "days": {"type": "integer"},
+    "limit": {"type": "integer"},
+    "minutes": {"type": "integer"},
+    "start_ms": {"type": "integer"},
+    "end_ms": {"type": "integer"},
+    "location": {"type": "string"},
+    "description": {"type": "string"},
+    "email": {"type": "string"},
 }
 
-EXTRA_DOC = (
-    " Also supports direct node actions without screen navigation: "
-    "notification_reply (target/package/name, text: reply to a notification in the background via RemoteInput), "
-    "notification_action (target, button/item), notification_dismiss (target or all=true), "
-    "contacts (query/name: search contacts), contact_add (name, number, email), "
-    "calendar (query, days: read upcoming events), calendar_add (title, in_minutes, duration_minutes, location), "
-    "location (current GPS/network coordinates and Maps URL), "
-    "media (command: play_pause, play, pause, next, previous, stop, mute), "
-    "and sensors (steps, accelerometer, light, pressure, proximity, battery)."
+COMPACT_DOC = (
+    "Use the Android phone locally: screen, screenshot, tap, type, swipe, open_app, open_url, install_apk, "
+    "notifications_read, notification_reply, contacts, calendar, location, media, sensors, crash_reports. "
+    "Not for files or code: write files with write, run programs with bash."
 )
+
+# Common hallucinations when models invoke OpenClaw-style node actions by dotted names or aliases.
+ACTION_ALIASES = {
+    "notifications.list": "notifications_read",
+    "notifications_list": "notifications_read",
+    "notification_list": "notifications_read",
+    "notifications.reply": "notification_reply",
+    "reply_notification": "notification_reply",
+    "notifications.actions": "notification_action",
+    "notifications.dismiss": "notification_dismiss",
+    "contacts.search": "contacts",
+    "contacts_search": "contacts",
+    "contact_search": "contacts",
+    "contacts.list": "contacts",
+    "contacts.add": "contact_add",
+    "calendar.events": "calendar",
+    "calendar_events": "calendar",
+    "calendar.list": "calendar",
+    "calendar.add": "calendar_add",
+    "location.get": "location",
+    "get_location": "location",
+    "media.control": "media",
+    "media_control": "media",
+    "motion.pedometer": "sensors",
+    "motion.activity": "sensors",
+    "pedometer": "sensors",
+}
+
+
+def _normalize_node_call(action, args):
+    act = ACTION_ALIASES.get(str(action or "").strip().lower(), str(action or "").strip())
+    out = dict(args or {})
+    if act in ("notification_reply", "notification_action", "notification_dismiss"):
+        if "target" not in out:
+            for k in ("query", "name", "sender", "contact", "app", "package", "key"):
+                if out.get(k):
+                    out["target"] = str(out.pop(k))
+                    break
+        if act == "notification_reply" and "text" not in out:
+            for k in ("message", "reply", "body"):
+                if out.get(k):
+                    out["text"] = str(out.pop(k))
+                    break
+    elif act == "contacts":
+        if "query" not in out:
+            for k in ("name", "target", "text"):
+                if out.get(k):
+                    out["query"] = str(out.get(k))
+                    break
+    elif act in ("sms", "call"):
+        if "number" not in out:
+            for k in ("to", "contact", "name", "target", "query"):
+                if out.get(k):
+                    out["number"] = str(out.get(k))
+                    break
+    elif act == "media":
+        if "command" not in out:
+            for k in ("button", "name", "text"):
+                if out.get(k):
+                    out["command"] = str(out.get(k))
+                    break
+    return act, out
 
 
 def install():
-    # 1. Register new actions in phone.ACTIONS if present
-    try:
-        from . import phone
-        if hasattr(phone, "ACTIONS"):
-            if isinstance(phone.ACTIONS, set):
-                phone.ACTIONS.update(NODE_ACTIONS)
-            elif isinstance(phone.ACTIONS, tuple):
-                phone.ACTIONS = tuple(dict.fromkeys(list(phone.ACTIONS) + list(NODE_ACTIONS)))
-            elif isinstance(phone.ACTIONS, list):
-                for a in NODE_ACTIONS:
-                    if a not in phone.ACTIONS:
-                        phone.ACTIONS.append(a)
-    except Exception:  # noqa: BLE001
-        pass
+    from . import phone, phone_fast, repair, tools
 
-    # 2. Register aliases in repair.PHONE_ACTIONS and repair.PHONE_ARGS if present
-    try:
-        from . import repair
-        if hasattr(repair, "PHONE_ACTIONS") and isinstance(repair.PHONE_ACTIONS, dict):
-            repair.PHONE_ACTIONS.update(ACTION_ALIASES)
-        if hasattr(repair, "PHONE_ARGS") and isinstance(repair.PHONE_ARGS, dict):
-            repair.PHONE_ARGS.setdefault("target", ("notification", "sender", "pkg"))
-            repair.PHONE_ARGS.setdefault("query", ("search", "filter", "contact", "keyword"))
-            repair.PHONE_ARGS.setdefault("title", ("event", "summary", "subject"))
-            repair.PHONE_ARGS.setdefault("number", ("phone", "phone_number", "tel", "to", "recipient"))
-            repair.PHONE_ARGS.setdefault("command", ("media_command", "control", "cmd"))
-        if hasattr(repair, "NUMERIC") and isinstance(repair.NUMERIC, set):
-            repair.NUMERIC.update({"days", "in_minutes", "duration_minutes", "minutes", "index"})
-    except Exception:  # noqa: BLE001
-        pass
+    phone.LOOK = tuple(dict.fromkeys(tuple(phone.LOOK) + NODE_LOOK))
+    phone.ACTIONS = tuple(dict.fromkeys(tuple(phone.ACTIONS) + NODE_ACTIONS))
+    phone.DOC = COMPACT_DOC
+    for k, spec in NODE_PARAMS.items():
+        phone.PARAMS.setdefault(k, spec)
 
-    # 3. Update phone_fast.SKIP and phone_fast.DOC
-    for act in READ_ONLY_NODE_ACTIONS:
-        if act not in phone_fast.SKIP:
-            phone_fast.SKIP = tuple(list(phone_fast.SKIP) + [act])
-    if "notification_reply" not in phone_fast.DOC:
-        phone_fast.DOC = phone_fast.DOC + EXTRA_DOC
+    phone_fast.SKIP = tuple(dict.fromkeys(tuple(phone_fast.SKIP) + NODE_LOOK + NODE_ACTIONS))
 
-    # 4. Update tools.REGISTRY["phone"] description and schema parameters (supports both flat tool.params and nested properties)
-    t = tools.REGISTRY.get("phone")
-    if t is not None:
-        if "notification_reply" not in (t.description or ""):
-            t.description = phone_fast.DOC
-        params = getattr(t, "params", None) or getattr(t, "parameters", None)
-        if isinstance(params, dict):
-            props = params.get("properties") if isinstance(params.get("properties"), dict) else params
-            act_prop = props.get("action")
-            if isinstance(act_prop, dict):
-                if isinstance(act_prop.get("enum"), list):
-                    for a in NODE_ACTIONS:
-                        if a not in act_prop["enum"]:
-                            act_prop["enum"].append(a)
-                desc = str(act_prop.get("description") or "")
-                if desc and "notification_reply" not in desc:
-                    act_prop["description"] = desc + " | " + ", ".join(NODE_ACTIONS)
-            props.setdefault("query", tools._s("search query for contacts, calendar, or notifications_read"))
-            props.setdefault("target", tools._s("target app/package/title for notification_reply, action, or dismiss"))
-            props.setdefault("button", tools._s("notification action button label for notification_action"))
-            props.setdefault("command", tools._s("media command: play_pause, play, pause, next, previous, stop, mute"))
-            props.setdefault("days", tools._i("number of days ahead for calendar (default 7)"))
-            props.setdefault("in_minutes", tools._i("minutes from now for calendar_add start (default 60)"))
-            props.setdefault("duration_minutes", tools._i("event duration in minutes for calendar_add (default 60)"))
-            props.setdefault("location", tools._s("event location for calendar_add"))
-            props.setdefault("email", tools._s("contact email for contact_add"))
-            props.setdefault("company", tools._s("contact company for contact_add"))
-            props.setdefault("all", {"type": "boolean", "description": "dismiss all notifications or list all screen nodes"})
+    entry = tools.REGISTRY.get("phone")
+    if entry is not None:
+        entry.description = phone.DOC
+        if "action" in entry.params and "enum" in entry.params["action"]:
+            entry.params["action"]["enum"] = list(phone.ACTIONS)
+        for k, spec in NODE_PARAMS.items():
+            entry.params.setdefault(k, spec)
+        if not getattr(entry.fn, "_openclaw_node", False):
+            prev_fn = entry.fn
+
+            def wrapped_phone(ctx, action, **args):
+                act, norm_args = _normalize_node_call(action, args)
+                return prev_fn(ctx, act, **norm_args)
+
+            wrapped_phone._openclaw_node = True
+            wrapped_phone._vital = getattr(prev_fn, "_vital", False)
+            wrapped_phone._fast = getattr(prev_fn, "_fast", False)
+            entry.fn = wrapped_phone
+
+    if not getattr(repair.normalize, "_openclaw_node", False):
+        prev_norm = repair.normalize
+
+        def normalize(name, args, schemas=()):
+            name, args = prev_norm(name, args, schemas)
+            low = str(name or "").strip().lower()
+            if low in ACTION_ALIASES and isinstance(args, dict):
+                act, norm_args = _normalize_node_call(ACTION_ALIASES[low], args)
+                norm_args["action"] = act
+                return "phone", norm_args
+            if name == "phone" and isinstance(args, dict) and args.get("action"):
+                act, norm_args = _normalize_node_call(args.get("action"), args)
+                norm_args["action"] = act
+                return "phone", norm_args
+            return name, args
+
+        normalize._openclaw_node = True
+        repair.normalize = normalize

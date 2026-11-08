@@ -1,29 +1,9 @@
-"""Tests for OpenClaw Node capabilities integrated into MusabAI (openclaw_node.py)."""
+"""Tests for OpenClaw Node capabilities integrated into MusabAI's phone tool."""
+import json
 import unittest
-from unittest.mock import patch
+from unittest import mock
 
 from . import openclaw_node, phone, phone_fast, repair, tools
-
-
-class _DummySession:
-    id = "s-openclaw"
-    turn = 1
-    messages = []
-
-
-class _DummyAgent:
-    depth = 0
-
-    def __init__(self):
-        self.session = _DummySession()
-
-
-class _DummyCtx:
-    def __init__(self):
-        self.agent = _DummyAgent()
-        self.session = self.agent.session
-        self.root = "."
-        self.cancel = None
 
 
 class OpenClawNodeTests(unittest.TestCase):
@@ -32,85 +12,88 @@ class OpenClawNodeTests(unittest.TestCase):
         openclaw_node.install()
 
     def test_node_actions_registered_in_phone_and_doc(self):
-        for act in openclaw_node.NODE_ACTIONS:
-            if hasattr(phone, "ACTIONS"):
-                self.assertIn(act, phone.ACTIONS)
-        self.assertIn("notification_reply", phone_fast.DOC)
-        self.assertIn("contacts", phone_fast.DOC)
-        self.assertIn("calendar_add", phone_fast.DOC)
-        self.assertIn("location", phone_fast.DOC)
-        self.assertIn("media", phone_fast.DOC)
-        self.assertIn("sensors", phone_fast.DOC)
-        for ro in openclaw_node.READ_ONLY_NODE_ACTIONS:
-            self.assertIn(ro, phone_fast.SKIP)
+        for act in (
+            "notification_reply",
+            "notification_action",
+            "notification_dismiss",
+            "contacts",
+            "contact_add",
+            "calendar",
+            "calendar_add",
+            "location",
+            "media",
+            "sensors",
+        ):
+            self.assertIn(act, phone.ACTIONS)
+            self.assertIn(act, phone_fast.SKIP)
+        for ro in ("notifications_read", "contacts", "calendar", "location", "sensors"):
+            self.assertTrue(phone.looks_only({"action": ro}), ro)
+        self.assertFalse(phone.looks_only({"action": "notification_reply", "target": "Ahmed", "text": "ok"}))
+        entry = tools.REGISTRY["phone"]
+        self.assertIn("notification_reply", entry.description)
+        self.assertIn("notification_reply", entry.params["action"]["enum"])
+        for param in ("query", "target", "command", "days", "start_ms"):
+            self.assertIn(param, entry.params)
+        schema_json = json.dumps(entry.schema())
+        self.assertLess(len(schema_json), 2000)
 
     def test_repair_normalizes_openclaw_aliases_and_args(self):
         name, args = repair.normalize(
-            "phone",
-            {"action": "reply_notification", "sender": "واتساب", "message": "أهلاً بك"},
-            {"phone"},
+            "notifications.reply",
+            {"sender": "أحمد", "message": "جاي بالطريق"},
+            ["phone"],
         )
         self.assertEqual(name, "phone")
         self.assertEqual(args["action"], "notification_reply")
-        self.assertEqual(args["target"], "واتساب")
-        self.assertEqual(args["text"], "أهلاً بك")
+        self.assertEqual(args["target"], "أحمد")
+        self.assertEqual(args["text"], "جاي بالطريق")
 
-        name, args = repair.normalize(
+        name2, args2 = repair.normalize(
             "phone",
-            {"action": "find_contact", "search": "أحمد"},
-            {"phone"},
+            {"action": "contacts.search", "name": "مصعب"},
+            ["phone"],
         )
-        self.assertEqual(args["action"], "contacts")
-        self.assertEqual(args["query"], "أحمد")
-
-        name, args = repair.normalize(
-            "phone",
-            {"action": "create_event", "summary": "اجتماع الفريق", "in_minutes": "30"},
-            {"phone"},
-        )
-        self.assertEqual(args["action"], "calendar_add")
-        self.assertEqual(args["title"], "اجتماع الفريق")
-        self.assertEqual(args["in_minutes"], 30)
-
-        name, args = repair.normalize(
-            "phone",
-            {"action": "get_location"},
-            {"phone"},
-        )
-        self.assertEqual(args["action"], "location")
+        self.assertEqual(name2, "phone")
+        self.assertEqual(args2["action"], "contacts")
+        self.assertEqual(args2["query"], "مصعب")
 
     def test_phone_tool_executes_openclaw_node_actions(self):
         calls = []
 
-        def fake_call(action, timeout=20, **kwargs):
+        def fake_call(action, **kwargs):
             calls.append((action, kwargs))
             if action == "notification_reply":
-                return {"ok": True, "text": "replied to com.whatsapp: تم"}
+                return {"ok": True, "text": f"replied to {kwargs.get('target')}: {kwargs.get('text')}"}
             if action == "contacts":
-                return {"ok": True, "text": "أحمد العتيبي: +966501112233 (Mobile)"}
+                return {"ok": True, "text": "- أحمد: +962790000000"}
             if action == "location":
                 return {
                     "ok": True,
-                    "text": "location: 24.713600, 46.675300 (±12 m, provider=gps, age=2s) https://maps.google.com/?q=24.713600,46.675300",
+                    "text": "31.953900, 35.910600\nMaps: https://maps.google.com/?q=31.953900,35.910600",
+                    "lat": 31.9539,
+                    "lon": 35.9106,
                 }
-            return {"ok": True, "text": f"{action} ok"}
+            if action == "sensors":
+                return {"ok": True, "text": "steps since reboot: 4120"}
+            return {"ok": True, "text": "done"}
 
-        ctx = _DummyCtx()
-        t = tools.REGISTRY.get("phone")
-        if t is None:
-            self.skipTest("phone tool not registered in this test context")
-        with patch.object(phone, "call", side_effect=fake_call):
-            out_contacts = t.fn(ctx, "contacts", query="أحمد")
-            text_c = out_contacts[0] if isinstance(out_contacts, tuple) else out_contacts
-            self.assertIn("+966501112233", text_c)
+        with mock.patch.object(phone, "call", side_effect=fake_call):
+            fn = tools.REGISTRY["phone"].fn
+            out1, _ = fn(None, "notification_reply", query="أحمد", message="تمام")
+            self.assertIn("replied to أحمد: تمام", out1)
+            self.assertEqual(calls[-1], ("notification_reply", {"target": "أحمد", "text": "تمام"}))
 
-            out_reply = t.fn(ctx, "notification_reply", target="com.whatsapp", text="تم")
-            text_r = out_reply[0] if isinstance(out_reply, tuple) else out_reply
-            self.assertIn("replied to com.whatsapp", text_r)
+            out2, _ = fn(None, "contacts", name="أحمد")
+            self.assertIn("+962790000000", out2)
+            self.assertEqual(calls[-1][0], "contacts")
+            self.assertEqual(calls[-1][1]["query"], "أحمد")
 
-        log_actions = [entry[0] for entry in ctx.agent._phone_turn["log"]]
-        self.assertNotIn("contacts", log_actions)
-        self.assertIn("notification_reply", log_actions)
+            out3, meta3 = fn(None, "location")
+            self.assertIn("maps.google.com", out3)
+            self.assertAlmostEqual(meta3["phone"]["lat"], 31.9539)
+
+            out4, _ = fn(None, "sensors")
+            self.assertIn("4120", out4)
 
 
 if __name__ == "__main__":
