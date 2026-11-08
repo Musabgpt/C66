@@ -603,11 +603,46 @@ final class TaskMemory {
 
     // ------------------------------------------------------------------------------------------------ the blanks
 
-    private static final Set<String> CONTACT_MARKERS = new HashSet<>(java.util.Arrays.asList(
-            "ل", "لـ", "الى", "to", "with", "مع"));
-    private static final Set<String> STOP_AFTER_CONTACT = new HashSet<>(java.util.Arrays.asList(
+    private static Set<String> folded(String... words) {
+        Set<String> out = new HashSet<>();
+        for (String w : words) {
+            out.add(TextFold.fold(w));
+        }
+        return out;
+    }
+
+    private static final Set<String> CONTACT_MARKERS = folded("ل", "لـ", "الى", "إلى", "to", "with", "مع");
+    private static final Set<String> STOP_AFTER_CONTACT = folded(
             "رساله", "رسالة", "message", "على", "عبر", "في", "بالواتس", "واتساب", "واتس", "on", "via", "saying", "and",
-            "و", "انو", "انه", "انها"));
+            "و", "انو", "انه", "انها", "يقول", "فيها", "فيه");
+    private static final Set<String> BEFORE_APP = folded("في", "على", "عبر", "on", "in", "via", "بال", "ع", "من");
+
+    /** Whether a word names the app ("الواتساب", "بالانستا" for WhatsApp, Instagram). */
+    private static boolean isAppWord(String f, Set<String> appWords) {
+        if (appWords.contains(f)) {
+            return true;
+        }
+        for (String p : ATTACHED) {
+            if (f.startsWith(p) && f.length() - p.length() >= 2 && appWords.contains(f.substring(p.length()))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Whether a word is part of how the procedure is asked for (its triggers, its title) or a filler word. */
+    private static boolean isKnown(String f, Set<String> known, Set<String> appWords) {
+        if (f.isEmpty() || TaskMemoryText.AR_STOP.contains(f) || TaskMemoryText.EN_STOP.contains(f)
+                || isAppWord(f, appWords)) {
+            return true;
+        }
+        for (String v : TaskMemoryText.variantsAr(f)) {
+            if (known.contains(v)) {
+                return true;
+            }
+        }
+        return known.contains(TaskMemoryText.stemEn(f));
+    }
 
     /** The values the request gives for the procedure's blanks, in order ({1}, {2}...); "" where it gives none. */
     List<String> slotValues(Proc p, String request, App app) {
@@ -622,46 +657,75 @@ final class TaskMemory {
             }
             return out;
         }
-        String raw = request.replaceAll("[«»\"“”]", " ").replaceAll("\\s+", " ").trim();
+        String raw = request.replaceAll("[«»\"“”]", " ").replace(":", ": ").replaceAll("\\s+", " ").trim();
         String[] toks = raw.isEmpty() ? new String[0] : raw.split(" ");
         String[] fold = new String[toks.length];
         for (int i = 0; i < toks.length; i++) {
             fold[i] = TextFold.fold(toks[i]).replaceAll("^[\\p{P}]+|[\\p{P}]+$", "");
         }
+        // the words that name the procedure's own app ("على يوتيوب" is where a search goes, never what it looks for);
+        // the app the request names is the value when it is another one ("نزل تطبيق سناب شات" installs Snapchat)
+        App own = null;
+        try {
+            for (App a : apps()) {
+                if (a.name.equalsIgnoreCase(p.app) && (own == null || a.n > own.n)) {
+                    own = a;
+                }
+            }
+        } catch (Exception ignored) {
+            // no app list: the request's app stands in
+        }
+        if (own == null && app != null && app.name.equalsIgnoreCase(p.app)) {
+            own = app;
+        }
         Set<String> appWords = new HashSet<>();
-        if (app != null) {
-            for (String a : app.aliases) {
+        if (own != null) {
+            for (String a : own.aliases) {
                 appWords.addAll(java.util.Arrays.asList(a.split(" ")));
             }
-            appWords.add(TextFold.fold(app.name));
+            appWords.add(TextFold.fold(own.name));
         }
-        int colon = raw.indexOf(':');
-        // where each blank's marker is: [token index where its value starts, char offset in that token]
+        Set<String> known = new HashSet<>(LIGHT);
+        known.addAll(folded("افتح", "افتحلي", "شغل", "شغللي", "روح", "ادخل", "open", "launch", "go", "بدي", "اريد"));
+        for (String ph : p.triggers()) {
+            for (String w : TaskMemoryText.words(ph)) {
+                known.addAll(TaskMemoryText.variantsAr(w));
+                known.add(TaskMemoryText.stemEn(w));
+            }
+        }
+        for (String w : TaskMemoryText.words(p.titleAr + " " + p.goal)) {
+            known.addAll(TaskMemoryText.variantsAr(w));
+            known.add(TaskMemoryText.stemEn(w));
+        }
+        int colonTok = -1;
+        for (int i = 0; i < toks.length; i++) {
+            if (toks[i].endsWith(":") && i + 1 < toks.length) {
+                colonTok = i + 1;                       // a colon starts the text that follows it
+                break;
+            }
+        }
+        // each blank's marker: where its value starts, how far into that word, and where the marker itself starts
         int[][] at = new int[specs.length()][];
         boolean[] contact = new boolean[specs.length()];
         boolean[] used = new boolean[toks.length];
         for (int s = 0; s < specs.length(); s++) {
             JSONObject spec = specs.optJSONObject(s);
             JSONArray after = spec == null ? null : spec.optJSONArray("after");
+            if (isText(spec) && colonTok >= 0 && !used[colonTok]) {
+                at[s] = new int[] {colonTok, 0, colonTok};
+                used[colonTok] = true;
+                continue;
+            }
             int bestTok = Integer.MAX_VALUE;
             int bestOff = 0;
+            int bestMark = 0;
             for (int k = 0; after != null && k < after.length(); k++) {
                 String m = TextFold.fold(after.optString(k));
-                if (m.isEmpty()) {
+                if (m.isEmpty() || m.equals(":")) {
                     continue;
                 }
                 if (CONTACT_MARKERS.contains(m)) {
                     contact[s] = true;
-                }
-                if (m.equals(":")) {
-                    if (colon >= 0) {
-                        int tok = tokenAt(raw, colon + 1);
-                        if (tok < bestTok) {
-                            bestTok = tok;
-                            bestOff = 0;
-                        }
-                    }
-                    continue;
                 }
                 String[] mw = m.split(" ");
                 for (int i = 0; i + mw.length <= toks.length; i++) {
@@ -669,25 +733,28 @@ final class TaskMemory {
                     for (int j = 0; j < mw.length && same; j++) {
                         same = fold[i + j].equals(mw[j]);
                     }
-                    if (same && !used[i] && i + mw.length < toks.length && i + mw.length < bestTok) {
-                        bestTok = i + mw.length;
+                    int v = i + mw.length;
+                    if (same && !used[i] && v < toks.length && v < bestTok && !isAppWord(fold[v], appWords)) {
+                        bestTok = v;                     // (a marker before the app's own name, "على يوتيوب", is not one)
                         bestOff = 0;
+                        bestMark = i;
                         break;
                     }
                     // "لأحمد", "بأحمد": a one-letter marker written on the name
                     if (mw.length == 1 && (m.equals("ل") || m.equals("ب")) && i > 0 && !used[i]
                             && fold[i].startsWith(m) && fold[i].length() > 2 && i < bestTok
-                            && !appWords.contains(fold[i].substring(1)) && !TaskMemoryText.AR_STOP.contains(fold[i])
+                            && !isAppWord(fold[i], appWords) && !TaskMemoryText.AR_STOP.contains(fold[i])
                             && !fold[i].startsWith("ال") && !STOP_AFTER_CONTACT.contains(fold[i])
-                            && !fold[i].substring(1).startsWith("ل")) {
+                            && !fold[i].substring(1).startsWith("ل") && !known.contains(fold[i])) {
                         bestTok = i;
                         bestOff = 1;
+                        bestMark = i;
                         break;
                     }
                 }
             }
             if (bestTok != Integer.MAX_VALUE) {
-                at[s] = new int[] {bestTok, bestOff};
+                at[s] = new int[] {bestTok, bestOff, bestMark};
                 if (bestTok < toks.length) {
                     used[bestTok] = true;
                 }
@@ -702,9 +769,8 @@ final class TaskMemory {
             int end = toks.length;
             for (int o = 0; o < specs.length(); o++) {
                 if (o != s && at[o] != null && at[o][0] > start) {
-                    // the next blank's value starts after its marker word (or inside it when the marker is attached)
-                    int markerTok = at[o][1] == 1 ? at[o][0] : at[o][0] - markerLength(specs.optJSONObject(o), fold, at[o][0]);
-                    end = Math.min(end, Math.max(start, markerTok));
+                    // the next blank's marker ends this value (its value, when the marker shares this value's word)
+                    end = Math.min(end, at[o][2] > start ? at[o][2] : at[o][0]);
                 }
             }
             List<String> value = new ArrayList<>();
@@ -713,41 +779,46 @@ final class TaskMemory {
                 if (contact[s] && i > start && (STOP_AFTER_CONTACT.contains(fold[i]) || value.size() >= 3)) {
                     break;
                 }
-                if (contact[s] && appWords.contains(fold[i])) {
+                if (contact[s] && isAppWord(fold[i], appWords)) {
                     break;
                 }
                 value.add(t);
             }
             out.add(clean(String.join(" ", value), appWords));
         }
-        // the last blank (the text) without a marker: what follows the app's name or the last word of the request
-        // that names the task ("انشر على فيسبوك صباح الخير")
+        // the last blank without a marker: the words of the request that are not how it is asked for
+        // ("شغللي فيروز على يوتيوب" -> "فيروز"; "انشر على فيسبوك صباح الخير" -> "صباح الخير")
         int last = specs.length() - 1;
-        if (last >= 0 && out.get(last).isEmpty() && !contact[last] && isText(specs.optJSONObject(last))) {
-            Set<String> known = new HashSet<>(appWords);
-            for (String ph : p.triggers()) {
-                known.addAll(TaskMemoryText.words(ph));
+        if (last >= 0 && out.get(last).isEmpty() && !contact[last]) {
+            int bestFrom = -1;
+            int bestTo = -1;
+            for (int i = 0; i < toks.length; ) {
+                if (isKnown(fold[i], known, appWords) || used[i]) {
+                    i++;
+                    continue;
+                }
+                int j = i;
+                while (j < toks.length && !isKnown(fold[j], known, appWords)) {
+                    j++;
+                }
+                bestFrom = i;                           // the last run: what is said after the task's own words
+                bestTo = j;
+                i = j;
             }
-            known.addAll(TaskMemoryText.words(p.titleAr));
-            int k = -1;
-            for (int i = 0; i < toks.length; i++) {
+            boolean tail = true;                        // only filler or the app's name after it
+            for (int i = Math.max(bestTo, 0); bestFrom >= 0 && i < toks.length; i++) {
                 String f = fold[i];
-                boolean isKnown = known.contains(f) || TaskMemoryText.AR_STOP.contains(f)
-                        || TaskMemoryText.EN_STOP.contains(f);
-                for (String pre : ATTACHED) {
-                    if (f.startsWith(pre) && known.contains(f.substring(pre.length()))) {
-                        isKnown = true;
-                    }
-                }
-                if (isKnown) {
-                    k = i;
-                } else if (k >= 0) {
-                    break;
+                if (!(TaskMemoryText.AR_STOP.contains(f) || TaskMemoryText.EN_STOP.contains(f) || isAppWord(f, appWords)
+                        || BEFORE_APP.contains(f))) {
+                    tail = false;
                 }
             }
-            if (k >= 0 && k + 1 < toks.length) {
+            if (bestFrom >= 0 && tail) {
+                if (isText(specs.optJSONObject(last))) {
+                    bestTo = toks.length;               // a text runs to the end of the request
+                }
                 List<String> rest = new ArrayList<>();
-                for (int i = k + 1; i < toks.length; i++) {
+                for (int i = bestFrom; i < bestTo; i++) {
                     rest.add(toks[i]);
                 }
                 out.set(last, clean(String.join(" ", rest), appWords));
@@ -767,60 +838,22 @@ final class TaskMemory {
         return false;
     }
 
-    private static int markerLength(JSONObject spec, String[] fold, int valueStart) {
-        JSONArray after = spec == null ? null : spec.optJSONArray("after");
-        int best = 1;
-        for (int k = 0; after != null && k < after.length(); k++) {
-            String[] mw = TextFold.fold(after.optString(k)).split(" ");
-            int from = valueStart - mw.length;
-            if (from < 0) {
-                continue;
-            }
-            boolean same = true;
-            for (int j = 0; j < mw.length && same; j++) {
-                same = fold[from + j].equals(mw[j]);
-            }
-            if (same) {
-                best = Math.max(best, mw.length);
-            }
-        }
-        return best;
-    }
-
-    private static int tokenAt(String raw, int charIndex) {
-        int tok = 0;
-        boolean inSpace = false;
-        for (int i = 0; i < Math.min(charIndex, raw.length()); i++) {
-            if (raw.charAt(i) == ' ') {
-                if (!inSpace) {
-                    tok++;
-                }
-                inSpace = true;
-            } else {
-                inSpace = false;
-            }
-        }
-        if (charIndex < raw.length() && raw.charAt(charIndex) == ' ') {
-            tok++;
-        }
-        return tok;
-    }
-
-    /** A value without a trailing "في يوتيوب", "on Facebook", quotes or punctuation. */
+    /** A value without a trailing "في يوتيوب", "on Facebook", quotes or punctuation; "" when only the app is left. */
     static String clean(String value, Set<String> appWords) {
-        String v = value.trim().replaceAll("^[\\s:،,.!؟?\\-]+|[\\s،,.!؟?\\-]+$", "");
-        String[] parts = v.split(" ");
+        String v = value.trim().replaceAll("^[\\s:،,.!؟?\\-]+|[\\s:،,.!؟?\\-]+$", "");
+        String[] parts = v.isEmpty() ? new String[0] : v.split(" ");
         int end = parts.length;
         while (end >= 2) {
             String f = TextFold.fold(parts[end - 1]);
             String g = TextFold.fold(parts[end - 2]);
-            boolean appAtEnd = appWords.contains(f) || appWords.contains(f.replaceFirst("^(ال|بال|عال)", ""));
-            if (appAtEnd && (g.equals("في") || g.equals("على") || g.equals("عبر") || g.equals("on") || g.equals("in")
-                    || g.equals("via") || g.equals("بال") || g.equals("ع"))) {
+            if (isAppWord(f, appWords) && BEFORE_APP.contains(g)) {
                 end -= 2;
             } else {
                 break;
             }
+        }
+        if (end == 1 && isAppWord(TextFold.fold(parts[0]), appWords)) {
+            end = 0;
         }
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < end; i++) {

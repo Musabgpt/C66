@@ -80,6 +80,28 @@ public class TaskMemoryTest {
     }
 
     @Test
+    public void valuesInTheWaysPeopleSayThem() throws Exception {
+        String[][] cases = {
+            {"افتح فيسبوك وانشر منشور", "cur.facebook.post", ""},                       // no text given: none taken
+            {"ابعتلو لخالد على الواتس: وينك", "cur.whatsapp.send", "خالد|وينك"},
+            {"اتصل بأحمد على الواتساب", "cur.whatsapp.voice_call", "أحمد"},
+            {"ابعث على التلغرام لعلي: تمام", "cur.telegram.send", "علي|تمام"},           // "علي" is not "على"
+            {"شغللي فيروز على يوتيوب", "cur.youtube.search", "فيروز"},                  // "على يوتيوب" is where
+            {"وين اقرب صيدلية على الخريطة", "cur.maps.search", "صيدلية"},
+            {"اكتب ملاحظه: اشتري خبز", "cur.notes.new", "اشتري خبز"},                   // the colon starts the text
+            {"نزل تطبيق تيليجرام", "cur.playstore.install", "تيليجرام"},                // another app is the value
+            {"send a whatsapp message to John saying I'm late", "cur.whatsapp.send", "John|I'm late"},
+        };
+        for (String[] c : cases) {
+            TaskMemory.Match m = best(c[0]);
+            assertEquals(c[0], c[1], m.proc.ref());
+            assertTrue(c[0], m.confident);
+            String got = String.join("|", m.values).replaceAll("^\\|+$", "");
+            assertEquals(c[0], c[2], got.replaceAll("^\\|+|\\|+$", ""));
+        }
+    }
+
+    @Test
     public void datasetProceduresAreFoundInEnglish() throws Exception {
         expect("search for welsh cakes recipe in kitchen stories", "ac.60");
         expect("view the scheduled meetings in zoho meet", "ac.0");
