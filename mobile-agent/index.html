@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="ar" dir="rtl" class="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<meta name="theme-color" content="#0b0f17">
+<title>Mobile AI Agent</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icon.svg">
+<script src="https://cdn.tailwindcss.com/3.4.16"></script>
+<script>
+tailwind.config = { darkMode: 'class', theme: { extend: { colors: {
+  ink: '#0b0f17', panel: '#111826', edge: '#1e293b', sky: '#38bdf8' } } } };
+</script>
+<style>
+  html,body{background:#0b0f17;color:#e2e8f0;height:100%;overscroll-behavior:none}
+  *{-webkit-tap-highlight-color:transparent}
+  .tabpanel{display:none}
+  .tabpanel.active{display:flex}
+  .chip{animation:pop .15s ease}
+  @keyframes pop{from{transform:scale(.96);opacity:.4}to{transform:scale(1);opacity:1}}
+  .dot{width:9px;height:9px;border-radius:999px;display:inline-block}
+  ::-webkit-scrollbar{width:0;height:0}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  input,textarea,select{color-scheme:dark}
+  .glow{box-shadow:0 0 0 1px rgba(56,189,248,.25),0 8px 30px -12px rgba(56,189,248,.35)}
+</style>
+</head>
+<body class="flex flex-col h-full max-w-xl mx-auto">
+
+<!-- Header -->
+<header class="shrink-0 px-4 pt-4 pb-3 flex items-center justify-between border-b border-slate-800">
+  <div class="flex items-center gap-2">
+    <div class="w-9 h-9 rounded-xl bg-slate-800 grid place-items-center glow">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2">
+        <circle cx="12" cy="9" r="5"/><path d="M8 20c0-2 1.8-3 4-3s4 1 4 3"/></svg>
+    </div>
+    <div>
+      <div class="font-semibold leading-tight">المساعد الذكي</div>
+      <div id="subtitle" class="text-[11px] text-slate-400 leading-tight">Mobile AI Agent</div>
+    </div>
+  </div>
+  <div class="flex items-center gap-3 text-[11px]">
+    <span class="flex items-center gap-1"><span id="dot-ai" class="dot bg-slate-600"></span>AI</span>
+    <span class="flex items-center gap-1"><span id="dot-ws" class="dot bg-slate-600"></span>WS</span>
+  </div>
+</header>
+
+<!-- Panels -->
+<main class="flex-1 overflow-hidden relative">
+
+  <!-- CHAT -->
+  <section id="tab-chat" class="tabpanel active flex-col absolute inset-0">
+    <div id="chatlog" class="flex-1 overflow-y-auto px-3 py-3 space-y-2"></div>
+    <div class="shrink-0 px-3 py-2 border-t border-slate-800 bg-ink">
+      <div class="flex items-center gap-2">
+        <button id="micBtn" class="w-11 h-11 rounded-xl bg-slate-800 grid place-items-center active:scale-95">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+        </button>
+        <input id="chatInput" placeholder="اكتب أمرك… مثال: افتح المتصفح وابحث عن سعر الذهب"
+               class="flex-1 bg-panel border border-edge rounded-xl px-3 h-11 outline-none focus:border-sky text-sm">
+        <button id="sendBtn" class="w-11 h-11 rounded-xl bg-sky text-ink grid place-items-center active:scale-95 font-bold">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+        </button>
+      </div>
+      <div class="flex items-center justify-between mt-1.5 px-1">
+        <button id="voiceToggle" class="text-[11px] text-slate-400">🔊 النطق: مُفعّل</button>
+        <button id="langToggle" class="text-[11px] text-slate-400">🎙️ اللغة: عربي</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- BROWSER -->
+  <section id="tab-browser" class="tabpanel flex-col absolute inset-0">
+    <div class="shrink-0 px-3 py-2 border-b border-slate-800 flex items-center gap-2">
+      <button id="brBack" class="w-9 h-9 rounded-lg bg-slate-800 grid place-items-center">‹</button>
+      <input id="brUrl" placeholder="example.com" class="flex-1 bg-panel border border-edge rounded-lg px-3 h-9 text-sm outline-none focus:border-sky" dir="ltr">
+      <button id="brGo" class="px-3 h-9 rounded-lg bg-sky text-ink font-semibold text-sm">اذهب</button>
+    </div>
+    <div class="flex-1 overflow-auto grid place-items-center bg-black/40 relative">
+      <img id="brImg" class="max-w-full max-h-full object-contain hidden" alt="live view">
+      <div id="brEmpty" class="text-slate-500 text-sm text-center px-6">
+        المتصفح الحيّ — افتح رابطاً أو اطلب من المساعد تصفّح موقع.<br>
+        <span class="text-[11px]">المس الصورة للتدخّل والنقر مباشرة.</span>
+      </div>
+    </div>
+    <div class="shrink-0 px-3 py-2 border-t border-slate-800 flex items-center gap-2 text-sm">
+      <input id="brClick" placeholder="انقر نصّاً/محدّداً" class="flex-1 bg-panel border border-edge rounded-lg px-2 h-9 outline-none focus:border-sky text-xs">
+      <button id="brClickBtn" class="px-3 h-9 rounded-lg bg-slate-800">نقر</button>
+      <button id="brExtract" class="px-3 h-9 rounded-lg bg-slate-800">النص</button>
+    </div>
+  </section>
+
+  <!-- SCHEDULER -->
+  <section id="tab-sched" class="tabpanel flex-col absolute inset-0">
+    <div class="flex-1 overflow-y-auto px-3 py-3 space-y-3">
+      <div class="bg-panel border border-edge rounded-xl p-3 space-y-2">
+        <div class="font-semibold text-sm flex items-center gap-2">➕ مهمّة مجدولة جديدة</div>
+        <input id="tkName" placeholder="الاسم" class="w-full bg-ink border border-edge rounded-lg px-3 h-10 text-sm outline-none focus:border-sky">
+        <textarea id="tkPrompt" rows="2" placeholder="ماذا يفعل المساعد كل مرة؟ مثال: افتح الأخبار ولخّص أهم 3 عناوين وأرسل إشعاراً"
+          class="w-full bg-ink border border-edge rounded-lg px-3 py-2 text-sm outline-none focus:border-sky"></textarea>
+        <div class="flex gap-2">
+          <input id="tkCron" dir="ltr" placeholder="cron: 0 9 * * *" class="flex-1 bg-ink border border-edge rounded-lg px-3 h-10 text-xs mono outline-none focus:border-sky">
+          <input id="tkEvery" type="number" min="1" placeholder="كل N دقيقة" class="w-28 bg-ink border border-edge rounded-lg px-3 h-10 text-xs outline-none focus:border-sky">
+        </div>
+        <button id="tkAdd" class="w-full h-10 rounded-lg bg-sky text-ink font-semibold text-sm">إضافة وجدولة</button>
+      </div>
+      <div id="taskList" class="space-y-2"></div>
+    </div>
+  </section>
+
+  <!-- DASHBOARD -->
+  <section id="tab-dash" class="tabpanel flex-col absolute inset-0">
+    <div class="flex-1 overflow-y-auto px-3 py-3 space-y-3">
+      <div id="statusCards" class="grid grid-cols-2 gap-2"></div>
+      <div class="bg-panel border border-edge rounded-xl p-3 space-y-2">
+        <div class="font-semibold text-sm">GitHub</div>
+        <input id="ghRepo" dir="ltr" placeholder="owner/name" class="w-full bg-ink border border-edge rounded-lg px-3 h-10 text-sm outline-none focus:border-sky">
+        <div class="grid grid-cols-4 gap-2 text-xs">
+          <button data-gh="status" class="ghBtn h-10 rounded-lg bg-slate-800">الحالة</button>
+          <button data-gh="clone" class="ghBtn h-10 rounded-lg bg-slate-800">استنساخ</button>
+          <button data-gh="pull" class="ghBtn h-10 rounded-lg bg-slate-800">سحب</button>
+          <button data-gh="commit_push" class="ghBtn h-10 rounded-lg bg-sky text-ink font-semibold">دفع</button>
+        </div>
+        <pre id="ghOut" class="text-[11px] mono text-slate-400 whitespace-pre-wrap max-h-40 overflow-auto"></pre>
+      </div>
+      <div class="bg-panel border border-edge rounded-xl p-3 space-y-2">
+        <div class="font-semibold text-sm">الهاتف (Termux)</div>
+        <button id="tmxTest" class="w-full h-10 rounded-lg bg-slate-800 text-sm">إرسال إشعار تجريبي</button>
+        <pre id="tmxOut" class="text-[11px] mono text-slate-400 whitespace-pre-wrap"></pre>
+      </div>
+      <button id="refreshStatus" class="w-full h-10 rounded-lg bg-slate-800 text-sm">↻ تحديث الحالة</button>
+      <div class="text-center text-[10px] text-slate-600 pb-2">يعمل محلياً على جهازك • Gemini → OpenRouter → Groq</div>
+    </div>
+  </section>
+</main>
+
+<!-- Bottom nav -->
+<nav class="shrink-0 grid grid-cols-4 border-t border-slate-800 bg-ink">
+  <button data-tab="chat" class="navBtn py-2 flex flex-col items-center gap-0.5 text-sky">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+    <span class="text-[10px]">محادثة</span>
+  </button>
+  <button data-tab="browser" class="navBtn py-2 flex flex-col items-center gap-0.5 text-slate-500">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.5 2.5 15 0 18M12 3c-2.5 2.5-2.5 15 0 18"/></svg>
+    <span class="text-[10px]">المتصفح</span>
+  </button>
+  <button data-tab="sched" class="navBtn py-2 flex flex-col items-center gap-0.5 text-slate-500">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+    <span class="text-[10px]">الجدولة</span>
+  </button>
+  <button data-tab="dash" class="navBtn py-2 flex flex-col items-center gap-0.5 text-slate-500">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>
+    <span class="text-[10px]">لوحة</span>
+  </button>
+</nav>
+
+<script>
+const $ = s => document.querySelector(s);
+const el = (t, c, h) => { const e = document.createElement(t); if (c) e.className = c; if (h!=null) e.innerHTML = h; return e; };
+const WSBASE = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host;
+
+/* ---------- Tabs ---------- */
+document.querySelectorAll('.navBtn').forEach(b => b.onclick = () => {
+  const t = b.dataset.tab;
+  document.querySelectorAll('.tabpanel').forEach(p => p.classList.remove('active'));
+  $('#tab-' + t).classList.add('active');
+  document.querySelectorAll('.navBtn').forEach(n => { n.classList.remove('text-sky'); n.classList.add('text-slate-500'); });
+  b.classList.add('text-sky'); b.classList.remove('text-slate-500');
+  if (t === 'sched') loadTasks();
+  if (t === 'dash') loadStatus();
+  if (t === 'browser') ensureBrowserWS();
+});
+
+/* ---------- Chat ---------- */
+let chatWS = null, speakOn = true, recLang = 'ar-SA';
+const log = $('#chatlog');
+function scrollDown(){ log.scrollTop = log.scrollHeight; }
+
+function bubble(side, text, extra){
+  const wrap = el('div', 'flex ' + (side==='user'?'justify-start':'justify-end'));
+  const b = el('div', (side==='user'
+    ? 'bg-slate-800 text-slate-100'
+    : 'bg-sky/15 text-sky-100 border border-sky/30') + ' rounded-2xl px-3 py-2 max-w-[82%] text-sm whitespace-pre-wrap ' + (extra||''));
+  b.textContent = text;
+  wrap.appendChild(b); log.appendChild(wrap); scrollDown(); return b;
+}
+function sysline(html){ const d = el('div','text-center text-[11px] text-slate-500 py-0.5',html); log.appendChild(d); scrollDown(); return d; }
+function actionChip(name, args){
+  const d = el('div','chip flex justify-center');
+  const inner = el('div','bg-slate-900 border border-edge rounded-xl px-3 py-1.5 text-[11px] text-slate-300 max-w-[88%]');
+  inner.innerHTML = '⚙️ <b class="text-sky">'+name+'</b> <span class="mono text-slate-500">'+escapeHtml(JSON.stringify(args)).slice(0,120)+'</span>';
+  d.appendChild(inner); log.appendChild(d); scrollDown();
+}
+function toolResult(name, res){
+  const d = el('div','flex justify-center');
+  const inner = el('div','bg-slate-900/60 border border-edge rounded-xl px-3 py-1.5 text-[11px] text-slate-400 max-w-[88%] whitespace-pre-wrap mono');
+  inner.textContent = '↳ ' + res;
+  d.appendChild(inner); log.appendChild(d); scrollDown();
+}
+function escapeHtml(s){ return (s||'').replace(/[&<>]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+
+let statusLine = null;
+function connectChat(){
+  chatWS = new WebSocket(WSBASE + '/ws/chat');
+  chatWS.onopen = () => setDot('#dot-ws', true);
+  chatWS.onclose = () => { setDot('#dot-ws', false); setTimeout(connectChat, 2500); };
+  chatWS.onmessage = ev => {
+    const m = JSON.parse(ev.data);
+    if (m.type === 'user_echo') bubble('user', m.text);
+    else if (m.type === 'thinking') { if(!statusLine) statusLine = sysline('…'); statusLine.textContent = 'يُفكّر… خطوة ' + m.step; }
+    else if (m.type === 'provider') { setDot('#dot-ai', true); $('#subtitle').textContent = 'via ' + (m.name||'ai'); }
+    else if (m.type === 'assistant' && m.text) bubble('agent', m.text, 'opacity-80');
+    else if (m.type === 'tool_call') actionChip(m.name, m.args);
+    else if (m.type === 'tool_result') { toolResult(m.name, m.result); if(String(m.name).startsWith('browser')) flashBrowserTab(); }
+    else if (m.type === 'final') { if(statusLine){statusLine.remove();statusLine=null;} bubble('agent', m.text || '(تم)'); speak(m.text); }
+    else if (m.type === 'error') bubble('agent', '⚠️ ' + m.text, 'bg-red-500/15 border-red-500/40 text-red-200');
+    else if (m.type === 'done') { $('#sendBtn').disabled = false; }
+  };
+}
+function sendChat(){
+  const v = $('#chatInput').value.trim();
+  if (!v || !chatWS || chatWS.readyState !== 1) return;
+  chatWS.send(JSON.stringify({ text: v }));
+  $('#chatInput').value = '';
+  $('#sendBtn').disabled = true;
+}
+$('#sendBtn').onclick = sendChat;
+$('#chatInput').addEventListener('keydown', e => { if (e.key === 'Enter') sendChat(); });
+
+/* voice output */
+function speak(text){
+  if (!speakOn || !text || !window.speechSynthesis) return;
+  try { const u = new SpeechSynthesisUtterance(text.slice(0,350));
+    u.lang = /[؀-ۿ]/.test(text) ? 'ar-SA' : 'en-US';
+    speechSynthesis.cancel(); speechSynthesis.speak(u); } catch(e){}
+}
+$('#voiceToggle').onclick = e => { speakOn = !speakOn; e.target.textContent = '🔊 النطق: ' + (speakOn?'مُفعّل':'موقف'); if(!speakOn) speechSynthesis.cancel(); };
+$('#langToggle').onclick = e => { recLang = recLang === 'ar-SA' ? 'en-US' : 'ar-SA'; e.target.textContent = '🎙️ اللغة: ' + (recLang==='ar-SA'?'عربي':'English'); };
+
+/* voice input */
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+$('#micBtn').onclick = () => {
+  if (!SR) { alert('التعرّف الصوتي غير مدعوم في هذا المتصفح'); return; }
+  const r = new SR(); r.lang = recLang; r.interimResults = false;
+  $('#micBtn').classList.add('bg-sky','text-ink');
+  r.onresult = e => { $('#chatInput').value = e.results[0][0].transcript; sendChat(); };
+  r.onend = () => $('#micBtn').classList.remove('bg-sky','text-ink');
+  r.onerror = () => $('#micBtn').classList.remove('bg-sky','text-ink');
+  r.start();
+};
+
+/* ---------- Live Browser ---------- */
+let brWS = null;
+function ensureBrowserWS(){
+  if (brWS && brWS.readyState <= 1) return;
+  brWS = new WebSocket(WSBASE + '/ws/browser');
+  brWS.onmessage = ev => {
+    const m = JSON.parse(ev.data);
+    if (m.type === 'screenshot') {
+      const img = $('#brImg');
+      img.src = 'data:image/jpeg;base64,' + m.data;
+      img.classList.remove('hidden'); $('#brEmpty').classList.add('hidden');
+      if (m.url) $('#brUrl').value = m.url;
+    }
+  };
+  brWS.onclose = () => setTimeout(() => { if($('#tab-browser').classList.contains('active')) ensureBrowserWS(); }, 2500);
+}
+async function brApi(body){
+  const r = await fetch('/api/browser', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  return r.json();
+}
+$('#brGo').onclick = () => { const u=$('#brUrl').value.trim(); if(u){ ensureBrowserWS(); brApi({action:'open',url:u}); } };
+$('#brUrl').addEventListener('keydown', e => { if(e.key==='Enter') $('#brGo').click(); });
+$('#brBack').onclick = () => brApi({action:'back'});
+$('#brClickBtn').onclick = () => { const t=$('#brClick').value.trim(); if(t){ brApi({action:'click',target:t}); $('#brClick').value=''; } };
+$('#brExtract').onclick = async () => { const j = await brApi({action:'extract'}); bubble('agent','📄 ' + (j.result||'').slice(0,500)); $('#tab-chat').classList.add('active'); };
+/* tap-to-intervene: map image click to 390x760 viewport */
+$('#brImg').onclick = e => {
+  const img = e.target, rect = img.getBoundingClientRect();
+  const x = (e.clientX - rect.left) / rect.width * 390;
+  const y = (e.clientY - rect.top) / rect.height * 760;
+  brApi({action:'tap', x: Math.round(x), y: Math.round(y)});
+};
+function flashBrowserTab(){ const b=document.querySelector('[data-tab=browser]'); b.classList.add('text-sky'); setTimeout(()=>{ if(!$('#tab-browser').classList.contains('active')){b.classList.remove('text-sky');b.classList.add('text-slate-500');}},1200); }
+
+/* ---------- Scheduler ---------- */
+async function loadTasks(){
+  const r = await fetch('/api/tasks'); const tasks = await r.json();
+  const box = $('#taskList'); box.innerHTML = '';
+  if (!tasks.length) { box.appendChild(el('div','text-center text-slate-500 text-sm py-6','لا توجد مهام بعد.')); return; }
+  for (const t of tasks) box.appendChild(taskCard(t));
+}
+function taskCard(t){
+  const c = el('div','bg-panel border border-edge rounded-xl p-3 space-y-2');
+  const sched = t.cron ? ('cron ' + t.cron) : (t.interval_minutes ? ('كل ' + t.interval_minutes + ' دقيقة') : 'يدوي');
+  c.innerHTML =
+    '<div class="flex items-start justify-between gap-2">'
+    + '<div><div class="font-semibold text-sm">'+escapeHtml(t.name)+'</div>'
+    + '<div class="text-[11px] text-slate-400 mono">'+sched+(t.next_run?(' • التالي '+t.next_run.slice(5,16).replace("T"," ")):'')+'</div></div>'
+    + '<label class="inline-flex items-center cursor-pointer"><input type="checkbox" '+(t.enabled?'checked':'')+' class="sr-only tkEn"><span class="w-10 h-6 rounded-full '+(t.enabled?'bg-sky':'bg-slate-700')+' relative transition"><span class="absolute top-0.5 '+(t.enabled?'left-0.5':'right-0.5')+' w-5 h-5 bg-white rounded-full"></span></span></label>'
+    + '</div>'
+    + '<div class="text-[12px] text-slate-300 whitespace-pre-wrap">'+escapeHtml(t.prompt)+'</div>'
+    + '<div class="flex gap-2 text-xs">'
+    + '<button class="tkRun flex-1 h-9 rounded-lg bg-slate-800">▶ تشغيل الآن</button>'
+    + '<button class="tkLogs flex-1 h-9 rounded-lg bg-slate-800">📜 السجل</button>'
+    + '<button class="tkDel h-9 px-3 rounded-lg bg-red-500/20 text-red-300">حذف</button></div>'
+    + '<pre class="tkLogBox hidden text-[11px] mono text-slate-400 whitespace-pre-wrap max-h-48 overflow-auto bg-ink rounded-lg p-2"></pre>';
+  c.querySelector('.tkEn').onchange = e => fetch('/api/tasks/'+t.id,{method:'PATCH',headers:{'Content-Type':'application/json'},
+     body:JSON.stringify({name:t.name,prompt:t.prompt,cron:t.cron,interval_minutes:t.interval_minutes,enabled:e.target.checked})}).then(loadTasks);
+  c.querySelector('.tkRun').onclick = async () => { await fetch('/api/tasks/'+t.id+'/run',{method:'POST'}); toast('بدأ التشغيل…'); };
+  c.querySelector('.tkDel').onclick = async () => { if(confirm('حذف المهمة؟')){ await fetch('/api/tasks/'+t.id,{method:'DELETE'}); loadTasks(); } };
+  c.querySelector('.tkLogs').onclick = async () => {
+    const box = c.querySelector('.tkLogBox');
+    if (!box.classList.contains('hidden')) { box.classList.add('hidden'); return; }
+    const runs = await (await fetch('/api/tasks/'+t.id+'/runs')).json();
+    box.textContent = runs.length ? runs.map(r => '['+r.status+'] '+(r.started_at||'').slice(5,16)+'\n'+(r.result||'').slice(-600)).join('\n\n———\n\n') : 'لا يوجد سجل بعد.';
+    box.classList.remove('hidden');
+  };
+  return c;
+}
+$('#tkAdd').onclick = async () => {
+  const body = { name: $('#tkName').value.trim() || 'مهمة', prompt: $('#tkPrompt').value.trim(),
+    cron: $('#tkCron').value.trim() || null, interval_minutes: parseInt($('#tkEvery').value) || null, enabled: true };
+  if (!body.prompt) { toast('اكتب ماذا يفعل المساعد'); return; }
+  if (!body.cron && !body.interval_minutes) { toast('حدّد cron أو عدد الدقائق'); return; }
+  await fetch('/api/tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  $('#tkName').value=$('#tkPrompt').value=$('#tkCron').value=$('#tkEvery').value='';
+  loadTasks();
+};
+
+/* ---------- Dashboard ---------- */
+async function loadStatus(){
+  const s = await (await fetch('/api/status')).json();
+  const ai = s.ai, last = ai.last_used ? (' • آخر: '+ai.last_used) : '';
+  const cards = [
+    ['الذكاء الاصطناعي', ai.any_configured, (ai.providers.filter(p=>p.configured).map(p=>p.name).join(', ')||'لا مفاتيح')+last],
+    ['المتصفح', s.browser.available, s.browser.open ? ('مفتوح: '+(s.browser.url||'').slice(0,28)) : 'جاهز'],
+    ['GitHub', s.github.configured, 'gh:'+(s.github.gh_cli?'✓':'✗')+' token:'+(s.github.token?'✓':'✗')],
+    ['Termux', s.termux.available, 'إشعارات:'+(s.termux.notifications?'✓':'✗')],
+    ['المجدول', s.scheduler.running, s.scheduler.jobs+' مهمة نشطة'],
+    ['الوقت', true, (s.time||'').slice(0,16).replace('T',' ')],
+  ];
+  $('#statusCards').innerHTML = cards.map(([t,ok,sub]) =>
+    '<div class="bg-panel border border-edge rounded-xl p-3">'
+    +'<div class="flex items-center gap-2"><span class="dot '+(ok?'bg-emerald-400':'bg-slate-600')+'"></span><span class="text-sm font-semibold">'+t+'</span></div>'
+    +'<div class="text-[11px] text-slate-400 mt-1 mono truncate">'+escapeHtml(sub)+'</div></div>').join('');
+  setDot('#dot-ai', ai.any_configured);
+}
+document.querySelectorAll('.ghBtn').forEach(b => b.onclick = async () => {
+  const repo = $('#ghRepo').value.trim();
+  $('#ghOut').textContent = '…';
+  const body = { operation: b.dataset.gh, repo, message: 'Update via Mobile AI Agent' };
+  const j = await (await fetch('/api/github',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
+  $('#ghOut').textContent = j.result || JSON.stringify(j);
+});
+$('#tmxTest').onclick = async () => {
+  $('#tmxOut').textContent = '…';
+  const j = await (await fetch('/api/termux',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({action:'notify',title:'المساعد الذكي',content:'إشعار تجريبي ناجح ✅'})})).json();
+  $('#tmxOut').textContent = j.result || JSON.stringify(j);
+};
+$('#refreshStatus').onclick = loadStatus;
+
+/* ---------- misc ---------- */
+function setDot(sel, ok){ const d=$(sel); if(d){ d.className = 'dot ' + (ok?'bg-emerald-400':'bg-slate-600'); } }
+let toastT=null;
+function toast(msg){ let t=$('#toast'); if(!t){ t=el('div','','');t.id='toast';t.className='fixed bottom-20 left-1/2 -translate-x-1/2 bg-slate-800 border border-edge text-sm px-4 py-2 rounded-xl z-50';document.body.appendChild(t);} t.textContent=msg; t.style.opacity='1'; clearTimeout(toastT); toastT=setTimeout(()=>t.style.opacity='0',1800); }
+
+/* boot */
+connectChat();
+loadStatus();
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(()=>{});
+sysline('مرحباً 👋 — أعطِ أمراً وسأنفّذه على جهازك.');
+</script>
+</body>
+</html>

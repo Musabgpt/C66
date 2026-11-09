@@ -1,0 +1,10 @@
+# Runtime data (never commit)
+data/
+workspace/
+*.db
+*.sqlite
+.mobile-agent.env
+__pycache__/
+*.pyc
+.venv/
+agentvenv/
