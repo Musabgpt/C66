@@ -79,6 +79,12 @@ final class Phone {
                 return PhoneControlService.need().screen();
             case "screenshot":
                 return PhoneControlService.need().screenshot();
+            case "screen_tree":
+                return PhoneControlService.need().screenTree();
+            case "screenshot_bytes":
+                return PhoneControlService.need().screenshotBytes();
+            case "gesture":
+                return PhoneControlService.need().gestureXY(a);
             case "tap":
                 return PhoneControlService.need().tap(a);
             case "type":

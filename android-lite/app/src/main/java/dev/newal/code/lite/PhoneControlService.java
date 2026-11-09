@@ -13,6 +13,7 @@ import android.util.DisplayMetrics;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
@@ -432,6 +433,127 @@ public class PhoneControlService extends AccessibilityService {
             throw new IllegalStateException("Android did not take " + name);
         }
         return settle("pressed " + name);
+    }
+
+    // ------------------------------------------------------------------------------------------------ for automation drivers
+
+    private static final int TREE_MAX = 400;
+
+    /** The screen as a structured tree for automation drivers (Mobilerun's DeviceDriver.get_ui_tree): every visible
+     *  node with its bounds in screen pixels, text and states. Layout wrappers with no text, description or action
+     *  of their own are folded into their parent, so the tree stays short for the model. */
+    synchronized JSONObject screenTree() throws Exception {
+        AccessibilityNodeInfo r = root();
+        int[] count = {0};
+        JSONObject tree = treeNode(r, 0, count);
+        CharSequence pkg = r.getPackageName();
+        AccessibilityNodeInfo focus = r.findFocus(AccessibilityNodeInfo.FOCUS_INPUT);
+        JSONObject phone = new JSONObject();
+        phone.put("currentApp", label(pkg));
+        phone.put("packageName", pkg == null ? "" : pkg.toString());
+        phone.put("isEditable", focus != null && focus.isEditable());
+        if (focus != null) {
+            JSONObject f = new JSONObject();
+            f.put("text", plainText(focus.getText()));
+            f.put("className", plainText(focus.getClassName()));
+            f.put("resourceId", plainText(focus.getViewIdResourceName()));
+            phone.put("focusedElement", f);
+        }
+        DisplayMetrics dm = new DisplayMetrics();
+        ((android.view.WindowManager) getSystemService(WINDOW_SERVICE)).getDefaultDisplay().getRealMetrics(dm);
+        JSONObject screen = new JSONObject();
+        screen.put("width", dm.widthPixels);
+        screen.put("height", dm.heightPixels);
+        JSONObject filtering = new JSONObject();
+        filtering.put("min_element_size", 5);
+        JSONObject device = new JSONObject();
+        device.put("screen_bounds", screen);
+        device.put("filtering_params", filtering);
+        JSONObject state = new JSONObject();
+        state.put("a11y_tree", tree);
+        state.put("phone_state", phone);
+        state.put("device_context", device);
+        JSONObject o = Phone.ok("screen tree: " + count[0] + " elements in " + label(pkg));
+        o.put("state", state);
+        return o;
+    }
+
+    private JSONObject treeNode(AccessibilityNodeInfo n, int depth, int[] count) throws Exception {
+        count[0]++;
+        Rect b = new Rect();
+        n.getBoundsInScreen(b);
+        JSONObject bounds = new JSONObject();
+        bounds.put("left", b.left);
+        bounds.put("top", b.top);
+        bounds.put("right", b.right);
+        bounds.put("bottom", b.bottom);
+        JSONObject o = new JSONObject();
+        o.put("className", plainText(n.getClassName()));
+        o.put("text", plainText(n.getText()));
+        o.put("contentDescription", plainText(n.getContentDescription()));
+        o.put("resourceId", plainText(n.getViewIdResourceName()));
+        if (Build.VERSION.SDK_INT >= 26) {
+            o.put("hint", plainText(n.getHintText()));
+        }
+        o.put("boundsInScreen", bounds);
+        o.put("isClickable", n.isClickable() || n.isLongClickable());
+        o.put("isCheckable", n.isCheckable());
+        o.put("isChecked", n.isChecked());
+        o.put("isEditable", n.isEditable());
+        o.put("isFocused", n.isFocused());
+        o.put("isEnabled", n.isEnabled());
+        o.put("isSelected", n.isSelected());
+        o.put("isScrollable", n.isScrollable());
+        JSONArray kids = new JSONArray();
+        if (depth < 60) {
+            treeChildren(n, kids, depth, count);
+        }
+        o.put("children", kids);
+        return o;
+    }
+
+    private void treeChildren(AccessibilityNodeInfo n, JSONArray out, int depth, int[] count) throws Exception {
+        for (int i = 0; i < n.getChildCount() && count[0] < TREE_MAX; i++) {
+            AccessibilityNodeInfo c = n.getChild(i);
+            if (c == null || !c.isVisibleToUser()) {
+                continue;
+            }
+            if (wrapper(c)) {
+                treeChildren(c, out, depth + 1, count);   // a layout wrapper: its children stand in its place
+            } else {
+                out.put(treeNode(c, depth + 1, count));
+            }
+        }
+    }
+
+    private static boolean wrapper(AccessibilityNodeInfo n) {
+        return plainText(n.getText()).isEmpty() && plainText(n.getContentDescription()).isEmpty()
+                && !n.isClickable() && !n.isLongClickable() && !n.isEditable() && !n.isCheckable()
+                && !n.isScrollable();
+    }
+
+    private static String plainText(CharSequence c) {
+        if (c == null) {
+            return "";
+        }
+        String s = c.toString().replace('\n', ' ').trim();
+        return s.length() > 300 ? s.substring(0, 297) + "…" : s;
+    }
+
+    /** A swipe between two points in screen pixels (drivers give coordinates; swipe takes a direction). */
+    synchronized JSONObject gestureXY(JSONObject a) throws Exception {
+        int x1 = a.getInt("x1"), y1 = a.getInt("y1"), x2 = a.getInt("x2"), y2 = a.getInt("y2");
+        long ms = Math.max(40L, Math.min(3000L, a.optLong("duration", 300L)));
+        gesture(x1, y1, x2, y2, ms);
+        return settle("swiped from " + x1 + "," + y1 + " to " + x2 + "," + y2);
+    }
+
+    /** The screenshot's PNG in the answer itself, for a driver that cannot read the app's cache folder. */
+    synchronized JSONObject screenshotBytes() throws Exception {
+        JSONObject shot = screenshot();
+        byte[] png = java.nio.file.Files.readAllBytes(new File(shot.getString("path")).toPath());
+        shot.put("png_base64", android.util.Base64.encodeToString(png, android.util.Base64.NO_WRAP));
+        return shot;
     }
 
     private void gesture(int x1, int y1, int x2, int y2, long ms) throws Exception {
