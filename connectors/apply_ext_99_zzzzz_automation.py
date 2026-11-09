@@ -40,10 +40,13 @@ def apply(src, package, replace):
         shutil.copyfile(src / name, package / name)
 
     # 1) The free-pool OpenAI endpoint, hooked into the engine HTTP server.
+    # Anchor on the pinned engine's own lines (present before any other patch,
+    # so this is independent of patch ordering): the GET /api/health check and
+    # the POST _body() call, both right after the shared _gate.
     server = package / "server.py"
     text = server.read_text(encoding="utf-8")
-    get_anchor = '        if scheduled_tasks.route(self, "GET", path):\n            return\n'
-    post_anchor = '        if scheduled_tasks.route(self, "POST", path, b):\n            return\n'
+    get_anchor = '        if path == "/api/health":\n            return self._json({"ok": True})\n'
+    post_anchor = '        b = self._body()\n'
     if get_anchor not in text or post_anchor not in text:
         raise SystemExit("Unsafe patch refused: server.py route anchors missing for the automation endpoint")
     if "automation_llm.route" not in text:
@@ -51,8 +54,9 @@ def apply(src, package, replace):
                             '        from . import automation_llm\n'
                             '        if automation_llm.route(self, "GET", path):\n            return\n' + get_anchor, 1)
         text = text.replace(post_anchor,
-                            '        from . import automation_llm\n'
-                            '        if automation_llm.route(self, "POST", path, b):\n            return\n' + post_anchor, 1)
+                            post_anchor
+                            + '        from . import automation_llm\n'
+                            '        if automation_llm.route(self, "POST", path, b):\n            return\n', 1)
         server.write_text(text, encoding="utf-8")
 
     # 2) Register the five automation tools (phone-gated, next to the other phone tools).
