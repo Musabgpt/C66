@@ -108,8 +108,32 @@ public class TaskMemoryActivity extends Activity {
         if (!lastResult.isEmpty() && !running.get()) {
             String r = lastResult;
             lastResult = "";
+            if (memory != null && back.isEmpty()) {
+                showHome();                     // the numbers again (a run was counted)
+            }
             dialog("نتيجة التنفيذ", r);
         }
+    }
+
+    /** What a run did, for the person (the runner's own text is for the agent, in English). */
+    static String arabic(TaskRunner.Result r, TaskMemory.Proc p, List<String> values) {
+        int steps = p.steps().length();
+        String check = TaskRunner.fill(p.check(), values == null ? new ArrayList<>() : values, false).trim();
+        if (r.done) {
+            return "✓ تمّ: نُفّذت " + steps + " خطوات"
+                    + (check.isEmpty() ? "." : "، وتحقّقتُ أن «" + check + "» ظاهر على الشاشة.");
+        }
+        if (r.ok) {
+            return "⚠️ نُفّذت كل الخطوات لكن «" + check + "» غير ظاهر على الشاشة الآن؛ تأكّد بنفسك.";
+        }
+        if (r.stoppedAt >= 0) {
+            return "⚠️ توقّف التنفيذ عند الخطوة " + (r.stoppedAt + 1) + " من " + steps
+                    + ": الشاشة مختلفة عمّا يتوقعه الإجراء، فأكمل من هنا أو اطلب من المساعد.\n\n" + r.message;
+        }
+        if (r.message.startsWith("ACCESSIBILITY_OFF")) {
+            return "⚠️ فعّل خدمة إمكانية الوصول «NewAl Code: التحكم بالهاتف» من الإعدادات ثم جرّب مجددًا.";
+        }
+        return "⚠️ " + r.message;
     }
 
     @Override
@@ -1032,7 +1056,7 @@ public class TaskMemoryActivity extends Activity {
                     (i, n, what) -> notifyStep(nm, "الخطوة " + (i + 1) + " من " + n + ": " + what, true), cancel);
             TaskMemoryUsage.record(getApplicationContext(), p.ref(), r.done);
             running.set(false);
-            String text = (r.done ? "✓ " : "⚠️ ") + r.message;
+            String text = arabic(r, p, values);
             notifyStep(nm, text, false);
             lastResult = text;
             ui.post(() -> {
