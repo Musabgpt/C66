@@ -331,6 +331,22 @@ class U2:
             self.connect()
         return self.device
 
+    def adb(self, op, address="", code=""):
+        import subprocess
+        address = str(address or "")
+        if op == "adb_status":
+            out = subprocess.run(["adb", "devices", "-l"], capture_output=True, text=True, timeout=30)
+            return {"ok": True, "devices": out.stdout.strip()}
+        if op == "adb_pair":
+            p = subprocess.run(["adb", "pair", address], input=(str(code or "") + "\n"),
+                               capture_output=True, text=True, timeout=60)
+            return {"ok": p.returncode == 0, "output": (p.stdout + p.stderr).strip()[:500]}
+        if op == "adb_connect":
+            p = subprocess.run(["adb", "connect", address], capture_output=True, text=True, timeout=60)
+            ok = p.returncode == 0 and "connected" in (p.stdout + p.stderr).lower()
+            return {"ok": ok, "output": (p.stdout + p.stderr).strip()[:500]}
+        raise ValueError("unknown adb op: " + str(op))
+
     def op(self, op, args):
         d = self.ensure()
         if op == "dump":
@@ -392,9 +408,12 @@ def dispatch(path, data):
             return _await(BROWSER.screenshot())
         return {"ok": False, "error": "unknown browser op: %s" % op}
     if path == "/u2":
-        if data.get("op") == "connect":
+        op = data.get("op")
+        if isinstance(op, str) and op.startswith("adb_"):
+            return U2BACKEND.adb(op, data.get("address", ""), data.get("code", ""))
+        if op == "connect":
             return U2BACKEND.connect(data.get("serial"))
-        return U2BACKEND.op(data.get("op"), data)
+        return U2BACKEND.op(op, data)
     return {"ok": False, "error": "unknown path: %s" % path}
 
 
