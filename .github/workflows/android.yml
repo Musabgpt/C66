@@ -412,3 +412,66 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           MUSABAI_ARTIFACT_DIR: verified-artifact
         run: python3 connectors/publish_update_channel.py
+
+  publish-memory-apk:
+    needs: build
+    if: github.ref == 'refs/heads/claude/sharp-rubin-ai13us'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Download the APK this run built
+        uses: actions/download-artifact@v4
+        with:
+          pattern: MusabAI-Connectors*
+          path: built
+          merge-multiple: true
+      - name: Publish it as a direct download for the phone
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: task-memory-latest
+          ASSET: MusabAI-TaskMemory.apk
+        run: |
+          set -euo pipefail
+          src="$(ls built/MusabAI-Connectors*.apk | head -n 1)"
+          test -s "$src"
+          cp "$src" "$ASSET"
+          sum="$(sha256sum "$ASSET" | cut -d' ' -f1)"
+          printf '%s  %s\n' "$sum" "$ASSET" > "$ASSET.sha256"
+          url="https://github.com/${GH_REPO}/releases/download/${TAG}/${ASSET}"
+          cat > notes.md <<NOTES
+          ## تطبيق ذاكرة المهام — MusabAI
+
+          ### رابط التنزيل المباشر للجوال
+          $url
+
+          ### التثبيت
+          1. افتح الرابط من متصفح Chrome على الجوال، فيبدأ التنزيل.
+          2. اضغط على الملف بعد انتهاء التنزيل. إن طُلب منك، اسمح لـ Chrome بـ «تثبيت تطبيقات غير معروفة» ثم اضغط «تثبيت».
+          3. افتح التطبيق واكتب في «جرّب طلباً»: افتح الفيس بوك انشر منشور
+
+          إن ظهرت رسالة «لم يتم تثبيت التطبيق»: احذف نسخة MusabAI القديمة من جوالك أولاً ثم ثبّت من جديد.
+
+          ### معلومات البناء
+          - البناء رقم ${{ github.run_number }} من الإيداع $GITHUB_SHA
+          - SHA-256: $sum
+          - يعمل على أندرويد 8.0 فما فوق
+          - نسخة تطوير موقّعة بمفتاح ثابت، فالتحديثات القادمة تُثبَّت فوقها مباشرة
+          NOTES
+          # One fixed tag, so the download link never changes.
+          gh release delete "$TAG" --yes --cleanup-tag >/dev/null 2>&1 || true
+          ok=0
+          for i in 1 2 3 4; do
+            if gh release create "$TAG" "$ASSET" "$ASSET.sha256" \
+                 --target "$GITHUB_SHA" --prerelease \
+                 --title "MusabAI Task Memory — build ${{ github.run_number }}" \
+                 --notes-file notes.md; then
+              ok=1; break
+            fi
+            sleep $((i * 5))
+          done
+          test "$ok" = 1
+          echo "::notice title=Phone download::$url"
+          echo "### Phone download: $url" >> "$GITHUB_STEP_SUMMARY"
