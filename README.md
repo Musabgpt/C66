@@ -31,9 +31,37 @@ SQLite database (`android-lite/app/src/main/assets/task_memory/library.db.gzip`,
 - A phone request that fits a procedure reaches the model with it ("افتح فيسبوك وانشر منشور يقول صباح الخير" comes with
   the Facebook post procedure and its text), and the model runs it with `phone_routine id=tm:...`. The app carries out
   each step, trying every label, and stops where the screen differs so the model goes on by hand.
-- **Task Memory** has its own launcher icon: categories, sources, search, "try a request", procedure details and a Run
-  button (it confirms before posting or sending). The phone home screen also has a Task memory group.
+- **Task Memory** is a screen inside the app (the phone home screen's Task memory group opens it): categories,
+  sources, search, "try a request", procedure details and a Run button (it confirms before posting or sending).
+  MusabAI is one app with one launcher icon.
 - Rebuilding the library from the datasets and how it is tested: [tools/task_memory](tools/task_memory/README.md).
+
+## Phone and browser engines (Mobilerun, uiautomator2, Pydoll, Browser Use)
+
+Beside the plain phone tool and the task memory, the assistant has four automation engines, all inside the one app
+and all on the free model pool (no key of the user's own):
+
+| Tool | Engine | For |
+|------|--------|-----|
+| `phone_agent` | [Mobilerun](https://github.com/droidrun/mobilerun) | a whole phone goal across screens and apps: it reads the real screen and taps, types and swipes until done |
+| `phone_power`, `adb_connect` | [uiautomator2](https://github.com/openatx/uiautomator2) | low-level control over this phone's own wireless ADB (no computer), for what accessibility cannot reach |
+| `browser` | [Pydoll](https://github.com/autoscrape-labs/pydoll) | one step in a background Chromium: open, extract (text plus the names of fields, buttons and links), click, type, press, back |
+| `browser_agent` | [Browser Use](https://github.com/browser-use/browser-use) | a whole web task in the same Chromium, returning the answer |
+
+- These libraries are Linux-only, so they run in the managed Debian environment in Termux
+  (`connectors/automation_server.py`: one localhost server, token required). `connectors/automation_runtime.py`
+  installs them on first use (a few minutes, once, with progress lines and Stop), starts the server, replaces one
+  left by an older app, and exposes the tools.
+- Mobilerun drives the phone through MusabAI's own accessibility bridge (`MusabDriver` over the app's phone server:
+  `screen_tree`, `gesture`, `tap`, `type`), so it needs neither the Portal app nor ADB, and no screenshots.
+- Every model call of these engines goes to the engine's local `/v1/free` endpoint (`connectors/automation_llm.py`):
+  OpenAI-compatible, streaming or not, structured output on any model, an answer or a clear error in bounded time
+  (a model that stalls or answers with nothing is replaced and cools down).
+- The prompt has one routing policy: a known step uses the phone tool, a routine or a task-memory procedure; a whole
+  goal uses `phone_agent`; background web work uses `browser`/`browser_agent`; a page the user should see or one that
+  needs their logged-in session opens in the phone's Chrome.
+
+Installing and trying it on a phone: [android-lite/INSTALL.md](android-lite/INSTALL.md).
 
 ## Behavior profile
 

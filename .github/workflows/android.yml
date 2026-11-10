@@ -442,7 +442,9 @@ jobs:
           printf '%s  %s\n' "$sum" "$ASSET" > "$ASSET.sha256"
           url="https://github.com/${GH_REPO}/releases/download/${TAG}/${ASSET}"
           cat > notes.md <<NOTES
-          ## تطبيق ذاكرة المهام — MusabAI
+          ## MusabAI — تطبيق واحد
+
+          المساعد، ذاكرة المهام، ومحرّكات التحكم بالهاتف والمتصفح (Mobilerun و uiautomator2 و Pydoll و Browser Use) في تطبيق واحد بأيقونة واحدة، على النماذج المجانية.
 
           ### رابط التنزيل المباشر للجوال
           $url
@@ -450,9 +452,11 @@ jobs:
           ### التثبيت
           1. افتح الرابط من متصفح Chrome على الجوال، فيبدأ التنزيل.
           2. اضغط على الملف بعد انتهاء التنزيل. إن طُلب منك، اسمح لـ Chrome بـ «تثبيت تطبيقات غير معروفة» ثم اضغط «تثبيت».
-          3. افتح التطبيق واكتب في «جرّب طلباً»: افتح الفيس بوك انشر منشور
+          3. افتح MusabAI واكتب مثلاً: افتح الفيس بوك وانشر منشور
+             ذاكرة المهام شاشة داخل التطبيق: من الشاشة الرئيسية اختر «ذاكرة المهام».
 
           إن ظهرت رسالة «لم يتم تثبيت التطبيق»: احذف نسخة MusabAI القديمة من جوالك أولاً ثم ثبّت من جديد.
+          أول استخدام لوكيل الهاتف أو المتصفح يثبّت محرّكه داخل Termux مرة واحدة (بضع دقائق).
 
           ### معلومات البناء
           - البناء رقم ${{ github.run_number }} من الإيداع $GITHUB_SHA
@@ -466,7 +470,7 @@ jobs:
           for i in 1 2 3 4; do
             if gh release create "$TAG" "$ASSET" "$ASSET.sha256" \
                  --target "$GITHUB_SHA" --prerelease \
-                 --title "MusabAI Task Memory — build ${{ github.run_number }}" \
+                 --title "MusabAI — build ${{ github.run_number }}" \
                  --notes-file notes.md; then
               ok=1; break
             fi

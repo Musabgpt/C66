@@ -23,8 +23,9 @@ their authors keep them password-protected so they stay out of training data.
 * The agent gets the matching procedure under a phone request (`connectors/task_memory.py`, through
   `phone_fast.note`) and runs it with `phone_routine id=tm:...`; `TaskRunner.java` carries the steps out, trying each
   label and stopping where the screen differs so the agent continues by hand.
-* **Task Memory** has its own launcher icon (`TaskMemoryActivity`): categories, sources, search, "try a request",
-  procedure details and a Run button.
+* **Task Memory** is a screen inside the app (`TaskMemoryActivity`, opened from the home screen's Task memory
+  group; no launcher icon of its own): categories, sources, search, "try a request", procedure details and a Run
+  button.
 
 ## Rebuilding
 
