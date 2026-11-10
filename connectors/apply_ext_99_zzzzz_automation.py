@@ -17,21 +17,44 @@ PROMPT_TOOLS_NEW = ("web_search and web_fetch for the web; weather for the weath
                     "phone, screen_look, phone_routine and phone_sequence for one known phone step; "
                     "phone_agent for a whole phone task (the Mobilerun agent that reads the screen and acts); "
                     "phone_power with adb_connect for low-level control through uiautomator2; "
-                    "browser and browser_agent for the live web browser (Pydoll and Browser Use over Chromium); ")
+                    "browser and browser_agent for web work in a background browser (Pydoll and Browser Use "
+                    "over Chromium); ")
 
 POLICY_ANCHOR = "- Otherwise start with phone open_app"
 POLICY = (
-    "- Choosing a phone engine: for a single known step, the phone tool, phone_routine or a task-memory tm: note is "
-    "fastest. For a whole goal that spans screens or apps (\"book a ride\", \"reply to the latest message and like "
-    "it\"), call phone_agent with the goal in one go — it looks at the real screen and taps, types and swipes until "
-    "it is done, then reports. Use phone_power (op=dump/click_text/send_keys/app_start) only after adb_connect has "
-    "paired this phone's own wireless ADB, for cases the accessibility tools cannot reach.\n"
-    "- The web: for one precise action use browser (open, click, type, extract); for a whole web task "
-    "(\"find the cheapest flight and tell me\") use browser_agent, which drives the same live Chromium to the end "
-    "and returns the answer. Prefer a direct API or web_search when a page visit is not actually needed.\n"
-    "- All of these run on the user's device and use the free model pool; nothing needs a key. Keep to the fewest "
-    "steps, verify the real result, and answer in one line in the user's language.\n"
+    "- Choosing a phone engine: one known step is fastest with the phone tool, phone_routine or a task-memory tm: "
+    "note. For a whole goal that spans screens or apps (\"book a ride\", \"reply to the latest message and like "
+    "it\"), call phone_agent once with the goal, naming the exact app, person and text: it reads the real screen "
+    "and taps, types and swipes until it is done, then reports. If it reports not completed, look at the screen "
+    "and finish by hand. phone_power (uiautomator2) is only for what these cannot reach, after adb_connect has "
+    "paired this phone's own wireless ADB.\n"
+    "- Web work in the background (reading a page, searching a site, a form that needs no login of the user's): "
+    "browser op=open, then op=extract to read the page and see the names of its fields, buttons and links, then "
+    "click or type by those names (type with submit=true for a search box). For a whole web task (\"find the "
+    "cheapest flight and tell me\") call browser_agent once with the site and what to return. web_search and "
+    "web_fetch are enough when a result or one page answers it; the phone's Chrome is for a page the user should "
+    "see or one that needs their own logged-in session.\n"
+    "- These engines run on the user's device with the free model pool; nothing needs a key. The first use of "
+    "phone_agent, browser or browser_agent installs its engine in Termux (a few minutes, once): say so when it "
+    "takes long. Fewest steps, verify the real result, answer in one line in the user's language.\n"
 )
+
+CHROME_BEFORE = "For websites, open web URLs in the phone's Chrome."
+CHROME_AFTER = ("For websites the user should see, or that need their own logged-in session, open web URLs in the "
+                "phone's Chrome.")
+
+
+def _soft(path, before, after):
+    """A change that improves wording or wiring but must never fail a build: applied only
+    when its anchor is there."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    if before not in text or after in text:
+        return False
+    path.write_text(text.replace(before, after, 1), encoding="utf-8")
+    return True
 
 
 def apply(src, package, replace):
@@ -58,6 +81,11 @@ def apply(src, package, replace):
                             + '        from . import automation_llm\n'
                             '        if automation_llm.route(self, "POST", path, b):\n            return\n', 1)
         server.write_text(text, encoding="utf-8")
+    # The engine says where it really listens (the port can differ from the default), so the
+    # automation server calls /v1/free at the right address.
+    _soft(server, '    httpd.base_url = "http://%s:%d/" % (host, httpd.server_address[1])\n',
+          '    httpd.base_url = "http://%s:%d/" % (host, httpd.server_address[1])\n'
+          '    os.environ["MUSAB_ENGINE_BASE"] = httpd.base_url.rstrip("/")\n')
 
     # 2) Register the five automation tools (phone-gated, next to the other phone tools).
     tools_py = package / "tools.py"
@@ -89,12 +117,23 @@ def apply(src, package, replace):
         md = md.replace(PROMPT_TOOLS, PROMPT_TOOLS_NEW, 1)
         md = md.replace(POLICY_ANCHOR, POLICY + POLICY_ANCHOR, 1)
         lean_md.write_text(md, encoding="utf-8")
+    _soft(lean_md, CHROME_BEFORE, CHROME_AFTER)
 
     # 5) Open threads pick up the new prompt.
     replace(package / "agent_policy.py", "MARKER = 'MusabAI behavior profile v14'",
-            "MARKER = 'MusabAI behavior profile v15'")
+            "MARKER = 'MusabAI behavior profile v16'")
 
-    # 6) Run the hermetic tests with the parity suite in CI.
+    # 6) When a mode asks before a phone action, the question names what the new tools will do
+    # (they have no "action" argument: the question read "phone: ?").
+    permissions = package / "permissions.py"
+    _soft(permissions,
+          'return Decision(ASK, "phone: %s%s" % (args.get("action") or "?", _phone_detail(args)))',
+          'return Decision(ASK, "phone: %s%s" % (args.get("action") or args.get("op") or tool, _phone_detail(args)))')
+    _soft(permissions,
+          'for k in ("name", "url", "text", "number", "page", "item", "direction"):',
+          'for k in ("name", "url", "text", "number", "page", "item", "direction", "goal", "package", "address"):')
+
+    # 7) Run the hermetic tests with the parity suite in CI.
     with open(package / "claude_parity_tests.py", "a", encoding="utf-8") as f:
         f.write("\nfrom .automation_llm_tests import AutomationLlmTests  # noqa: E402,F401 - parity CI\n")
-        f.write("from .automation_runtime_tests import AutomationToolsTests  # noqa: E402,F401 - parity CI\n")
+        f.write("from .automation_runtime_tests import AutomationToolsTests, AutomationEnsureTests  # noqa: E402,F401\n")

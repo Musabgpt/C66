@@ -24,14 +24,20 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import concurrent.futures
+import hashlib
 import json
 import os
+import secrets
 import threading
 import time
+import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = 1
+VERSION = 2
+
+os.environ.setdefault("ANONYMIZED_TELEMETRY", "false")      # Browser Use: nothing leaves the phone but the task
 
 PHONE_ORIGIN = os.environ.get("MUSAB_PHONE_ORIGIN", "http://127.0.0.1:8796")
 PHONE_KEY = os.environ.get("MUSAB_PHONE_KEY", "")
@@ -60,11 +66,24 @@ def phone_call(action, **params):
     req = urllib.request.Request(
         PHONE_ORIGIN + "/phone", data=data, method="POST",
         headers={"Content-Type": "application/json", "X-NewAl-Key": PHONE_KEY})
-    with urllib.request.urlopen(req, timeout=60) as r:
-        out = json.loads(r.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            raw = r.read()
+    except urllib.error.HTTPError as e:
+        raw = e.read()            # the app answers a failed action with 400 and says why in the body
+    except OSError as e:
+        raise PhoneError("MusabAI's phone server is not reachable (%s)" % e)
+    try:
+        out = json.loads(raw.decode("utf-8"))
+    except ValueError:
+        raise PhoneError("the phone server sent an unreadable answer")
     if not out.get("ok", False):
-        raise RuntimeError(out.get("error") or "phone action failed")
+        raise PhoneError(out.get("error") or "phone action failed")
     return out
+
+
+class PhoneError(RuntimeError):
+    """What the phone said went wrong, in its own words (accessibility off, no such app...)."""
 
 
 # ---------------------------------------------------------------------------
@@ -163,6 +182,10 @@ def browser_use_llm():
 # ---------------------------------------------------------------------------
 
 async def run_phone_agent(goal, max_steps=18):
+    # The screen must be readable before anything else: with the accessibility service off the
+    # phone says so in its own words, and that is the answer (not a minute of retries).
+    await asyncio.to_thread(phone_call, "screen_tree")
+
     from mobilerun import MobileAgent, DeviceConfig
     from mobilerun.config_manager import MobileConfig
 
@@ -170,9 +193,12 @@ async def run_phone_agent(goal, max_steps=18):
     config.device = DeviceConfig(platform="android", portal_mode="disabled", auto_setup=False)
     config.agent.max_steps = int(max_steps)
     config.agent.vision_only = False
+    config.agent.reasoning = False       # one fast agent, no manager/executor round trips
+    config.agent.streaming = False       # whole answers: a stalled free model can be replaced mid-request
     config.telemetry.enabled = False
 
-    agent = MobileAgent(goal=goal, config=config, llms=mobilerun_llms(), driver=make_driver())
+    agent = MobileAgent(goal=goal, config=config, llms=mobilerun_llms(), driver=make_driver(),
+                        timeout=min(900, 120 + 45 * int(max_steps)))
     result = await agent.run()
     success = getattr(result, "success", None)
     reason = getattr(result, "reason", "")
@@ -182,18 +208,60 @@ async def run_phone_agent(goal, max_steps=18):
 
 
 # ---------------------------------------------------------------------------
-# Shared Chromium + Pydoll
+# Shared Chromium: Pydoll for single steps, Browser Use for whole tasks
 # ---------------------------------------------------------------------------
 
+_PAGE_SUMMARY_JS = r"""
+const out = [];
+const seen = new Set();
+const label = (e) => (e.innerText || e.value || e.getAttribute('aria-label') || e.getAttribute('title') ||
+                      e.getAttribute('alt') || '').trim().replace(/\s+/g, ' ').slice(0, 60);
+const visible = (e) => { const r = e.getBoundingClientRect(); return r.width > 2 && r.height > 2; };
+for (const e of document.querySelectorAll('input, textarea, select, button, a[href], [role=button], [contenteditable=true]')) {
+  if (out.length >= 40) break;
+  if (!visible(e)) continue;
+  const tag = e.tagName.toLowerCase();
+  const type = (e.getAttribute('type') || '').toLowerCase();
+  if (tag === 'input' && type === 'hidden') continue;
+  let line;
+  if (tag === 'input' || tag === 'textarea' || tag === 'select' || e.isContentEditable) {
+    const hint = e.getAttribute('placeholder') || e.getAttribute('aria-label') || e.getAttribute('name') || e.id || '';
+    const sel = e.id ? '#' + e.id : (e.getAttribute('name') ? tag + '[name="' + e.getAttribute('name') + '"]' : '');
+    line = (type === 'submit' || type === 'button') ? 'button "' + label(e) + '"'
+         : 'field "' + hint + '"' + (sel ? ' ' + sel : '') + (e.value ? ' = "' + String(e.value).slice(0, 40) + '"' : '');
+  } else if (tag === 'a') {
+    const t = label(e); if (!t) continue; line = 'link "' + t + '"';
+  } else {
+    const t = label(e); if (!t) continue; line = 'button "' + t + '"';
+  }
+  if (!seen.has(line)) { seen.add(line); out.push(line); }
+}
+return JSON.stringify({title: document.title, text: (document.body && document.body.innerText) || '', elements: out});
+"""
+
+_KEYS = {"RETURN": "ENTER", "ESC": "ESCAPE", "DEL": "DELETE", "UP": "ARROWUP", "DOWN": "ARROWDOWN",
+         "LEFT": "ARROWLEFT", "RIGHT": "ARROWRIGHT", "PGDN": "PAGEDOWN", "PGUP": "PAGEUP", "SPACEBAR": "SPACE"}
+
+
 class Browser:
+    """One headless Chromium for both browser engines, one operation at a time. Pydoll drives
+    single steps; the Browser Use agent attaches to the same browser over CDP for whole tasks."""
+
     def __init__(self):
-        self.lock = asyncio.Lock()
         self.chrome = None
         self.tab = None
+        self._lock = None
+        self._prefer_url = ""
 
-    async def tab_ready(self):
-        if self.tab is not None:
-            return self.tab
+    def lock(self):
+        if self._lock is None:
+            self._lock = asyncio.Lock()          # made on the server's loop, at first use
+        return self._lock
+
+    def cdp_url(self):
+        return "http://127.0.0.1:%d" % CDP_PORT
+
+    async def _launch(self):
         from pydoll.browser.chromium import Chrome
         from pydoll.browser.options import ChromiumOptions
         profile = os.environ.get("MUSAB_CHROME_PROFILE", "/opt/musabai/chrome-profile")
@@ -215,63 +283,243 @@ class Browser:
         self.tab = await self.chrome.start()
         return self.tab
 
-    def cdp_url(self):
-        return "http://127.0.0.1:%d" % CDP_PORT
+    @staticmethod
+    async def _ping(tab):
+        try:
+            await asyncio.wait_for(tab.execute_script("return 1", return_by_value=True), 5)
+            return True
+        except Exception:
+            return False
+
+    async def _live_tab(self):
+        """The tab to drive, alive. Ours when it still answers; else an open one (the Browser Use
+        agent may have closed or replaced ours), preferring the page it ended on; else a new tab;
+        and a browser that died is started again."""
+        if self.chrome is not None:
+            if self.tab is not None and await self._ping(self.tab):
+                return self.tab
+            self.tab = None
+            try:
+                tabs = [t for t in await asyncio.wait_for(self.chrome.get_opened_tabs(), 8) if await self._ping(t)]
+                chosen = None
+                for t in tabs:
+                    try:
+                        if self._prefer_url and await t.current_url() == self._prefer_url:
+                            chosen = t
+                            break
+                    except Exception:
+                        pass
+                chosen = chosen or (tabs[0] if tabs else None)
+                if chosen is None:
+                    chosen = await asyncio.wait_for(self.chrome.new_tab(), 10)
+                for t in tabs:                              # one page at a time: no pile of tabs
+                    if t is not chosen:
+                        try:
+                            await asyncio.wait_for(t.close(), 5)
+                        except Exception:
+                            pass
+                if await self._ping(chosen):
+                    self.tab = chosen
+                    return chosen
+            except Exception:
+                pass
+            try:
+                await asyncio.wait_for(self.chrome.stop(), 10)
+            except Exception:
+                pass
+            self.chrome = self.tab = None
+        return await self._launch()
+
+    async def _page(self, tab, **more):
+        out = {"ok": True, "url": await tab.current_url(), "title": await _title(tab)}
+        out.update(more)
+        return out
 
     async def open(self, url):
+        url = str(url or "").strip()
+        if not url:
+            return {"ok": False, "error": "open needs a url"}
         if not url.startswith(("http://", "https://")):
             url = "https://" + url
-        tab = await self.tab_ready()
-        await tab.go_to(url)
-        return {"ok": True, "url": await tab.current_url(), "title": await _safe_title(tab)}
+        async with self.lock():
+            tab = await self._live_tab()
+            try:
+                await tab.go_to(url, timeout=45)
+            except Exception as e:
+                return {"ok": False, "error": "could not open %s: %s" % (url, _short(e))}
+            return await self._page(tab)
 
     async def click(self, target):
-        tab = await self.tab_ready()
-        el = await _find(tab, target)
-        if el is None:
-            return {"ok": False, "error": "no element matching %r" % target}
-        await el.click()
-        await asyncio.sleep(0.6)
-        return {"ok": True, "url": await tab.current_url()}
+        async with self.lock():
+            tab = await self._live_tab()
+            el = await _find(tab, target)
+            if el is None:
+                return {"ok": False, "error": "nothing on the page matches %r (op=extract lists what is there)" % target}
+            before = await tab.current_url()
+            try:
+                await el.scroll_into_view()
+            except Exception:
+                pass
+            await el.click()
+            await _settle(tab, before)
+            return await self._page(tab)
 
-    async def type(self, target, text):
-        tab = await self.tab_ready()
-        el = await _find(tab, target)
-        if el is None:
-            return {"ok": False, "error": "no field matching %r" % target}
-        await el.insert_text(text)
-        return {"ok": True}
+    async def type(self, target, text, submit=False):
+        text = str(text if text is not None else "")
+        async with self.lock():
+            tab = await self._live_tab()
+            el = await _find(tab, target, field=True)
+            if el is None:
+                return {"ok": False, "error": "no field matches %r (op=extract lists the fields)" % target}
+            await el.click()                                   # focus it, as a person would
+            try:
+                await el.clear()
+            except Exception:
+                pass
+            await el.insert_text(text)
+            value = await _active_value(tab)
+            if value.strip() != text.strip():                  # some fields only take real key presses
+                try:
+                    await el.clear()
+                except Exception:
+                    pass
+                await el.type_text(text)
+                value = await _active_value(tab)
+            if value.strip() != text.strip():
+                return {"ok": False, "error": "the field did not take the text (it holds %r)" % value[:80]}
+            before = await tab.current_url()
+            if submit:
+                await _enter(tab)
+                await _settle(tab, before)
+            return await self._page(tab, value=value[:200])
+
+    async def press(self, key):
+        from pydoll.constants import Key
+        name = str(key or "Enter").strip().upper().replace(" ", "").replace("_", "")
+        k = getattr(Key, _KEYS.get(name, name), None)
+        if k is None:
+            return {"ok": False, "error": "unknown key %r (Enter, Tab, Escape, Backspace, ArrowDown, PageDown...)" % key}
+        async with self.lock():
+            tab = await self._live_tab()
+            before = await tab.current_url()
+            if k == Key.ENTER:
+                await _enter(tab)
+            else:
+                await tab.keyboard.press(k)
+            await _settle(tab, before)
+            return await self._page(tab)
+
+    async def back(self):
+        async with self.lock():
+            tab = await self._live_tab()
+            before = await tab.current_url()
+            await tab.execute_script("history.back()")
+            await _settle(tab, before)
+            return await self._page(tab)
 
     async def extract(self):
-        tab = await self.tab_ready()
-        res = await tab.execute_script(
-            "return (document.body && document.body.innerText) || ''", return_by_value=True)
-        text = _script_value(res)
-        return {"ok": True, "text": _clip(text, 8000)}
+        async with self.lock():
+            tab = await self._live_tab()
+            raw = _script_value(await tab.execute_script(_PAGE_SUMMARY_JS, return_by_value=True))
+            try:
+                page = json.loads(raw)
+            except ValueError:
+                page = {"title": "", "text": raw, "elements": []}
+            return {"ok": True, "url": await tab.current_url(), "title": page.get("title", ""),
+                    "text": _clip(page.get("text", ""), 8000), "elements": page.get("elements", [])}
 
     async def screenshot(self):
-        tab = await self.tab_ready()
-        b64 = await tab.take_screenshot(as_base64=True, quality=60)
-        return {"ok": True, "png_base64": b64, "url": await tab.current_url()}
+        async with self.lock():
+            tab = await self._live_tab()
+            b64 = await tab.take_screenshot(as_base64=True, quality=60)
+            return {"ok": True, "png_base64": b64, "url": await tab.current_url()}
 
     async def run_agent(self, task, max_steps=25):
         from browser_use import Agent, BrowserSession
-        await self.tab_ready()
-        session = BrowserSession(cdp_url=self.cdp_url(), keep_alive=True)
-        agent = Agent(task=task, llm=browser_use_llm(), browser_session=session,
-                      use_vision=False, max_actions_per_step=4)
-        history = await agent.run(max_steps=int(max_steps))
-        return {"ok": True, "result": _clip(str(history.final_result() or ""), 4000),
-                "success": history.is_successful(), "steps": history.number_of_steps(),
-                "urls": [str(u) for u in (history.urls() or [])][-5:]}
+        async with self.lock():
+            await self._live_tab()
+            session = BrowserSession(cdp_url=self.cdp_url(), keep_alive=True)
+            urls = []
+            try:
+                agent = Agent(task=task, llm=browser_use_llm(), browser_session=session,
+                              use_vision=False, max_actions_per_step=4, max_failures=3, llm_timeout=150)
+                history = await agent.run(max_steps=int(max_steps))
+                urls = [str(u) for u in (history.urls() or []) if u]
+                return {"ok": True, "result": _clip(str(history.final_result() or ""), 4000),
+                        "success": history.is_successful(), "steps": history.number_of_steps(),
+                        "urls": urls[-5:]}
+            finally:
+                try:
+                    await asyncio.wait_for(session.stop(), 15)     # detach; the browser stays
+                except Exception:
+                    pass
+                self._prefer_url = urls[-1] if urls else ""
+                self.tab = None            # the agent may have closed or replaced our tab
+
+    async def close(self):
+        if self.chrome is not None:
+            try:
+                await asyncio.wait_for(self.chrome.stop(), 10)
+            except Exception:
+                pass
+        self.chrome = self.tab = None
 
 
-async def _safe_title(tab):
+def _short(error):
+    return ("%s: %s" % (type(error).__name__, error))[:200]
+
+
+async def _title(tab):
     try:
-        res = await tab.execute_script("return document.title", return_by_value=True)
-        return _script_value(res)
+        return _script_value(await tab.execute_script("return document.title", return_by_value=True))
     except Exception:
         return ""
+
+
+async def _enter(tab):
+    """Enter as a real keyboard sends it: with its character, so the page's key listeners run
+    and a form submits (a bare key event does not submit a form)."""
+    try:
+        from pydoll.commands import InputCommands
+        from pydoll.protocol.input.types import KeyEventType
+        key = dict(key="Enter", code="Enter", windows_virtual_key_code=13, native_virtual_key_code=13)
+        await tab._execute_command(InputCommands.dispatch_key_event(type=KeyEventType.KEY_DOWN, text="\r", **key))
+        await tab._execute_command(InputCommands.dispatch_key_event(type=KeyEventType.KEY_UP, **key))
+        return
+    except Exception:
+        pass
+    done = _script_value(await tab.execute_script(
+        "const a = document.activeElement; if (a && a.form) { a.form.requestSubmit ? a.form.requestSubmit() "
+        ": a.form.submit(); return 'form'; } return 'none';", return_by_value=True))
+    if done != "form":
+        from pydoll.constants import Key
+        await tab.keyboard.press(Key.ENTER)
+
+
+async def _active_value(tab):
+    """What the focused field holds now."""
+    try:
+        return str(_script_value(await tab.execute_script(
+            "const a = document.activeElement; "
+            "return a ? String(a.value !== undefined ? a.value : (a.innerText || '')) : ''",
+            return_by_value=True)) or "")
+    except Exception:
+        return ""
+
+
+async def _settle(tab, before, limit=8.0):
+    """After an action: give a navigation a moment to start, then wait for the page to be ready."""
+    await asyncio.sleep(0.4)
+    end = time.monotonic() + limit
+    while time.monotonic() < end:
+        try:
+            state = _script_value(await asyncio.wait_for(
+                tab.execute_script("return document.readyState", return_by_value=True), 5))
+        except Exception:
+            state = ""                                   # mid-navigation: the old document is gone
+        if state == "complete":
+            return
+        await asyncio.sleep(0.25)
 
 
 def _script_value(res):
@@ -285,26 +533,57 @@ def _script_value(res):
     return res if isinstance(res, str) else ""
 
 
-async def _find(tab, target):
-    """Find an element by CSS selector, else by visible text."""
-    target = str(target or "").strip()
+def _looks_like_selector(target):
+    if target.startswith(("/", "(")):                    # XPath
+        return True
+    if any(ch.isspace() for ch in target):
+        return any(tok in target for tok in (" > ", "[", "]"))
+    return target[:1] in "#.[" or any(ch in target for ch in "[]>=:") or (
+        "." in target and not target.lower().startswith(("http", "www.")) and target.split(".")[0].isalpha()
+        and target.split(".")[0].lower() in _TAGS)
+
+
+_TAGS = {"a", "button", "input", "textarea", "select", "div", "span", "form", "label", "li", "img", "p",
+         "h1", "h2", "h3", "td", "tr", "nav", "section", "summary"}
+
+
+def _attr(name, value):
+    return '[%s="%s"]' % (name, value.replace("\\", "\\\\").replace('"', '\\"'))
+
+
+async def _try(coro, wait):
     try:
-        if target and target[0] in ".#[" or (" " not in target and (">" in target or "[" in target)):
-            el = await tab.query(target, timeout=6, raise_exc=False)
-            if el:
-                return el
-    except Exception:
-        pass
-    try:
-        el = await tab.find(text=target, timeout=6, raise_exc=False)
-        if el:
-            return el
-    except Exception:
-        pass
-    try:
-        return await tab.query(target, timeout=4, raise_exc=False)
+        return await asyncio.wait_for(coro, wait + 3)
     except Exception:
         return None
+
+
+async def _find(tab, target, field=False):
+    """The element a target names: a CSS/XPath selector, or what a person would call it — its
+    visible text, or for a field its placeholder, label, name or id."""
+    target = str(target or "").strip()
+    if not target:
+        return None
+    if _looks_like_selector(target):
+        el = await _try(tab.query(target, timeout=5, raise_exc=False), 5)
+        if el:
+            return el
+    by_attr = ["placeholder", "aria-label", "name", "title"] if field else ["aria-label", "title", "value", "alt"]
+    for name in by_attr:
+        prefix = ("input%s, textarea%s, select%s" % ((_attr(name, target),) * 3)) if field else _attr(name, target)
+        el = await _try(tab.query(prefix, timeout=0, raise_exc=False), 1)
+        if el:
+            return el
+    if target.replace("-", "").replace("_", "").isalnum():
+        el = await _try(tab.query("#" + target, timeout=0, raise_exc=False), 1)
+        if el:
+            return el
+    el = await _try(tab.find(text=target, timeout=4, raise_exc=False), 4)
+    if el:
+        return el
+    if not _looks_like_selector(target):
+        return await _try(tab.query(target, timeout=1, raise_exc=False), 1)
+    return None
 
 
 BROWSER = Browser()
@@ -378,35 +657,98 @@ U2BACKEND = U2()
 # HTTP surface
 # ---------------------------------------------------------------------------
 
+MAX_BODY = 1 << 20
+
 _loop = asyncio.new_event_loop()
 threading.Thread(target=_loop.run_forever, name="musab-automation-loop", daemon=True).start()
+_PHONE_TASK = threading.Lock()          # the phone has one screen: one agent on it at a time
+_BUSY = {"phone_agent": False, "browser_agent": False}
 
 
 def _await(coro, timeout=600):
-    return asyncio.run_coroutine_threadsafe(coro, _loop).result(timeout=timeout)
+    """Run a coroutine on the server's loop from a request thread. A call that outlives its
+    time is cancelled there, so it releases what it holds instead of running on unseen."""
+    future = asyncio.run_coroutine_threadsafe(coro, _loop)
+    try:
+        return future.result(timeout=timeout)
+    except concurrent.futures.TimeoutError:
+        future.cancel()
+        raise TimeoutError("still not finished after %d s; stopped" % timeout)
+
+
+def source_digest():
+    """Which version of this file is running: the runtime replaces a server left by an older app."""
+    try:
+        with open(os.path.abspath(__file__), "rb") as f:
+            return hashlib.sha256(f.read()).hexdigest()[:16]
+    except OSError:
+        return ""
+
+
+def _steps(value, default, most):
+    try:
+        return max(1, min(int(value or default), most))
+    except (TypeError, ValueError):
+        return default
 
 
 def dispatch(path, data):
     if path == "/health":
-        return {"ok": True, "version": VERSION, "llm": {"base": LLM_BASE, "model": LLM_MODEL},
+        return {"ok": True, "version": VERSION, "digest": source_digest(), "busy": dict(_BUSY),
+                "llm": {"base": LLM_BASE, "model": LLM_MODEL},
                 "phone": bool(PHONE_KEY), "chromium": os.path.exists(CHROMIUM_BIN)}
+    if path == "/ping":                                   # an authenticated health check
+        return {"ok": True, "version": VERSION, "digest": source_digest()}
+    if path == "/shutdown":
+        def stop():
+            try:
+                _await(BROWSER.close(), timeout=15)
+            except Exception:
+                pass
+            os._exit(0)
+        threading.Timer(0.3, stop).start()
+        return {"ok": True, "stopping": True}
     if path == "/phone_agent":
-        return _await(run_phone_agent(data.get("goal", ""), data.get("max_steps", 18)))
+        goal = str(data.get("goal") or "").strip()
+        if not goal:
+            return {"ok": False, "error": "phone_agent needs a goal"}
+        if not _PHONE_TASK.acquire(blocking=False):
+            return {"ok": False, "error": "another phone task is still running; wait for it to finish"}
+        _BUSY["phone_agent"] = True
+        try:
+            steps = _steps(data.get("max_steps"), 18, 40)
+            return _await(run_phone_agent(goal, steps), timeout=min(900, 120 + 45 * steps))
+        finally:
+            _BUSY["phone_agent"] = False
+            _PHONE_TASK.release()
     if path == "/browser_agent":
-        return _await(BROWSER.run_agent(data.get("task", ""), data.get("max_steps", 25)))
+        task = str(data.get("task") or "").strip()
+        if not task:
+            return {"ok": False, "error": "browser_agent needs a task"}
+        _BUSY["browser_agent"] = True
+        try:
+            steps = _steps(data.get("max_steps"), 25, 60)
+            return _await(BROWSER.run_agent(task, steps), timeout=min(900, 120 + 45 * steps))
+        finally:
+            _BUSY["browser_agent"] = False
     if path == "/browser":
         op = data.get("op")
         if op == "open":
-            return _await(BROWSER.open(data.get("url", "")))
+            return _await(BROWSER.open(data.get("url", "")), timeout=90)
         if op == "click":
-            return _await(BROWSER.click(data.get("target", "")))
+            return _await(BROWSER.click(data.get("target", "")), timeout=60)
         if op == "type":
-            return _await(BROWSER.type(data.get("target", ""), data.get("text", "")))
+            return _await(BROWSER.type(data.get("target", ""), data.get("text", ""), bool(data.get("submit"))),
+                          timeout=60)
+        if op == "press":
+            return _await(BROWSER.press(data.get("key") or data.get("text") or "Enter"), timeout=45)
+        if op == "back":
+            return _await(BROWSER.back(), timeout=45)
         if op == "extract":
-            return _await(BROWSER.extract())
+            return _await(BROWSER.extract(), timeout=45)
         if op == "screenshot":
-            return _await(BROWSER.screenshot())
-        return {"ok": False, "error": "unknown browser op: %s" % op}
+            return _await(BROWSER.screenshot(), timeout=45)
+        return {"ok": False, "error": "unknown browser op %r: open, click, type, press, back or extract" % op}
     if path == "/u2":
         op = data.get("op")
         if isinstance(op, str) and op.startswith("adb_"):
@@ -429,34 +771,50 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _authorized(self):
+        given = self.headers.get("Authorization", "")
+        given = given[7:].strip() if given.lower().startswith("bearer ") else ""
+        return bool(TOKEN) and secrets.compare_digest(given.encode("utf-8"), TOKEN.encode("utf-8"))
+
     def do_POST(self):
-        token = self.headers.get("Authorization", "").removeprefix("Bearer ").strip()
-        if self.path != "/health" and TOKEN and token != TOKEN:
+        if not self._authorized():
             self._send(401, {"ok": False, "error": "unauthorized"})
             return
         try:
             n = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            n = -1
+        if n < 0 or n > MAX_BODY:
+            self._send(413, {"ok": False, "error": "request too large"})
+            return
+        try:
             data = json.loads(self.rfile.read(n).decode("utf-8")) if n else {}
+            if not isinstance(data, dict):
+                raise ValueError("a JSON object is expected")
         except Exception as e:
             self._send(400, {"ok": False, "error": "bad request: %s" % e})
             return
         try:
             self._send(200, dispatch(self.path, data))
+        except PhoneError as e:
+            self._send(200, {"ok": False, "error": str(e)})
         except Exception as e:
             self._send(200, {"ok": False, "error": "%s: %s" % (type(e).__name__, e)})
 
     def do_GET(self):
-        if self.path == "/health":
+        if self.path == "/health":                         # says only that it runs, and which version
             self._send(200, dispatch("/health", {}))
         else:
             self._send(404, {"ok": False, "error": "POST only"})
 
 
 def main():
+    if not TOKEN:
+        raise SystemExit("MUSAB_AUTOMATION_TOKEN is not set: this server only runs with a token")
     host = os.environ.get("MUSAB_AUTOMATION_HOST", "127.0.0.1")
     port = int(os.environ.get("MUSAB_AUTOMATION_PORT", "8799"))
     server = ThreadingHTTPServer((host, port), Handler)
-    print("musab-automation %d on %s:%d" % (VERSION, host, port), flush=True)
+    print("musab-automation %d (%s) on %s:%d" % (VERSION, source_digest(), host, port), flush=True)
     server.serve_forever()
 
 
