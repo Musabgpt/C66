@@ -1,6 +1,8 @@
 """Hermetic tests for the automation tools and their runtime (fake server, fake Termux, no network)."""
 
+import base64
 import json
+import re
 import os
 import threading
 import unittest
@@ -307,12 +309,45 @@ class AutomationEnsureTests(unittest.TestCase):
     def test_first_use_installs_and_says_what_it_is_doing(self):
         self.installed = False
         AR.ensure(self.ctx)
-        self.assertTrue(any("apt-get install" in c and "chromium" in c for c in self.started))
+        apt = [c for c in self.started if "apt-get install" in c][0]
+        for package in ("chromium", "python3-venv", " adb"):
+            self.assertIn(package, apt)
+        self.assertNotIn("android-tools-adb", apt)                 # Debian 12 calls it adb
+        # the pinned set is written into the container, then installed with nothing left for pip to resolve
+        written = [c for c in self.started if "requirements.txt" in c and "base64 -d" in c][0]
+        pinned = base64.b64decode(re.search(r"printf %s ([A-Za-z0-9+/=]+)", written.replace("'", "")).group(1)).decode()
+        for package in ("mobilerun==", "uiautomator2==", "pydoll-python==3.", "browser-use==0.13.5", "adbutils=="):
+            self.assertIn(package, pinned)
+        self.assertNotIn("#", pinned)
+        self.assertGreater(len(pinned.splitlines()), 150)
+        pip = [c for c in self.started if "pip install --no-deps -r" in c][0]
+        self.assertIn(AR.ROOT + "/requirements.txt", pip)
+        self.assertLess(self.started.index(written), self.started.index(pip))
+        self.assertTrue(any("Installing Mobilerun" in line for line in self.said))
+        self.assertEqual(self.server, "fresh")
+
+    def test_without_the_pinned_file_pip_gets_the_four_names(self):
+        self.installed = False
+        saved = AR.LOCK
+        AR.LOCK = "/nonexistent/requirements.txt"
+        try:
+            AR.ensure(self.ctx)
+        finally:
+            AR.LOCK = saved
         pip = [c for c in self.started if "pip install" in c and "mobilerun" in c][0]
         for package in ("uiautomator2", "pydoll-python", "browser-use==0.13.5"):
             self.assertIn(package, pip)
-        self.assertTrue(any("Installing Mobilerun" in line for line in self.said))
-        self.assertEqual(self.server, "fresh")
+        self.assertNotIn("--no-deps", pip)
+
+    def test_every_pin_is_exact_and_the_four_engines_are_there(self):
+        pins = AR._lock().decode().split()
+        self.assertGreater(len(pins), 150)
+        for pin in pins:
+            self.assertRegex(pin, r"^[A-Za-z0-9_.\-]+==[A-Za-z0-9_.+!\-]+$")
+        names = {pin.split("==")[0].lower() for pin in pins}
+        self.assertTrue({"mobilerun", "uiautomator2", "pydoll-python", "browser-use"} <= names)
+        self.assertEqual(len(names), len(pins))                    # no package twice
+        self.assertIn(AR._DIGEST, AR.ROOT)                         # another pinned set is another install
 
     def test_stop_cancels_before_anything_is_started(self):
         from . import providers

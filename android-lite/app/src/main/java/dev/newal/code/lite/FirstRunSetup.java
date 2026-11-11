@@ -30,6 +30,7 @@ final class FirstRunSetup {
     private static boolean waitingPermission;
     private static boolean dialogOpen;
     private static boolean termuxAsked;
+    private static boolean notificationsAsked;
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
 
     private FirstRunSetup() {}
@@ -52,16 +53,22 @@ final class FirstRunSetup {
         a.getSharedPreferences("musabai-setup", Context.MODE_PRIVATE)
                 .edit().putBoolean("intro_shown", true).apply();
         new AlertDialog.Builder(a)
-            .setTitle("MusabAI — تهيئة ذكية")
-            .setMessage("أجهّز الفقاعة العائمة والصوت وTermux والتحكم بالشاشة. أنت توافق على صلاحيات أندرويد عند طلبها؛ لا يمكن لأي تطبيق منح نفسه هذه الصلاحيات.")
-            .setPositiveButton("تهيئة بضغطة واحدة", (d, w) -> start(a))
+            .setTitle("أهلاً بك في MusabAI")
+            .setMessage("مساعدك الشخصي يحتاج بضع صلاحيات ليعمل عنك: التحكم بالهاتف، قراءة الإشعارات والميكروفون. أنت من يوافق على كل واحدة حين يطلبها أندرويد.")
+            .setPositiveButton("ابدأ الإعداد", (d, w) -> start(a))
             .setNegativeButton("لاحقاً", (d, w) -> {})
             .show();
     }
 
+    /** Whether the user let the app read notifications (its notification listener is switched on). */
+    static boolean readsNotifications(Context c) {
+        String on = Settings.Secure.getString(c.getContentResolver(), "enabled_notification_listeners");
+        return on != null && on.contains(c.getPackageName() + "/");
+    }
+
     static void start(MainActivity a) {
         active = true; waitingSettings = false; waitingPermission = false;
-        termuxAsked = false; dialogOpen = false;
+        termuxAsked = false; notificationsAsked = false; dialogOpen = false;
         next(a);
     }
 
@@ -101,8 +108,8 @@ final class FirstRunSetup {
         if (code == MIC_REQUEST && a.checkSelfPermission(Manifest.permission.RECORD_AUDIO)
                 != PackageManager.PERMISSION_GRANTED) {
             active = false;
-            a.showSetupError("الميكروفون لم يُفعّل. يمكنك استخدام الفقاعة كتابةً وإعادة التهيئة لاحقاً.");
-            startOverlay(a, false);
+            a.showSetupError("الميكروفون لم يُفعّل. تستطيع الكتابة، وتفعيله لاحقاً من الإعدادات.");
+            complete(a);
             return;
         }
         next(a);
@@ -110,17 +117,17 @@ final class FirstRunSetup {
 
     private static void next(MainActivity a) {
         if (!active || dialogOpen || waitingPermission || waitingSettings) return;
-        if (Build.VERSION.SDK_INT >= 23 && !Settings.canDrawOverlays(a)) {
-            prompt(a, "١ — الفقاعة العائمة",
-                    "اسمح بالظهور فوق التطبيقات. أندرويد يشترط اختيار هذه الصلاحية بنفسك.", 1,
-                    () -> a.startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                        Uri.parse("package:" + a.getPackageName()))));
+        if (!A11y.enabled(a)) {
+            prompt(a, "١ — التحكم بالهاتف",
+                    "فعّل «MusabAI: التحكم بالهاتف» من إمكانية الوصول. بها يفتح المساعد تطبيقاتك ويكتب وينقر عنك.", 2,
+                    () -> a.startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)));
             return;
         }
-        if (!A11y.enabled(a)) {
-            prompt(a, "٢ — التحكم بالشاشة",
-                    "فعّل خدمة NewAl Code من إمكانية الوصول. بدونها لا يستطيع MusabAI تعبئة النماذج أو الضغط في Chrome.", 2,
-                    () -> a.startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)));
+        if (!readsNotifications(a) && !notificationsAsked) {
+            notificationsAsked = true;                 // offered once: reading messages is optional
+            prompt(a, "٢ — قراءة الإشعارات",
+                    "اسمح لـMusabAI بقراءة الإشعارات ليقرأ رسائلك الجديدة ويرد عليها دون فتح التطبيقات.", 3,
+                    () -> a.startActivity(new Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS")));
             return;
         }
         if (a.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
@@ -144,10 +151,9 @@ final class FirstRunSetup {
             }
         }
         active = false;
-        // Enable the bubble and hands-free recognition together while the app
-        // is in the foreground and has while-in-use microphone permission.
-        startOverlay(a, true);
-        askNvidia(a, true);
+        // The floating button and an API key are no part of the setup any more: the assistant works without
+        // them (the button is a switch in the page's settings).
+        complete(a);
     }
 
     static void startOverlay(MainActivity a, boolean enableSpeech) {
@@ -203,10 +209,10 @@ final class FirstRunSetup {
         a.getSharedPreferences("musabai-setup", Context.MODE_PRIVATE)
             .edit().putBoolean("completed", true).apply();
         new AlertDialog.Builder(a)
-            .setTitle("الفقاعة والصوت جاهزان")
-            .setMessage("BusyBox وToybox يعملان تلقائياً. تأكد من اتصال Termux من صفحة الاتصالات، ووصّل GitHub هناك إذا لم يكن متصلاً. تفويض GitHub يحتاج تسجيل دخولك ولا يمكن إجراؤه سراً.")
-            .setPositiveButton("افتح صفحة الاتصالات", (d, w) -> a.openConnections())
-            .setNegativeButton("ابدأ استخدام MusabAI", (d, w) -> {})
+            .setTitle("مساعدك جاهز")
+            .setMessage("اختر مهمة من الشاشة أو اكتب طلبك أو قله بصوتك. من الإعدادات أضف معلوماتك (الاسم، البريد، الجواز...) ليملأ بها النماذج والحجوزات، واربط Gmail إن أردت.")
+            .setPositiveButton("افتح الإعدادات", (d, w) -> a.openConnections())
+            .setNegativeButton("ابدأ", (d, w) -> {})
             .show();
     }
 }

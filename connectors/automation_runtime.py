@@ -35,10 +35,28 @@ PORT = int(os.environ.get("MUSAB_AUTOMATION_PORT", "8799"))
 REQUIREMENTS = (
     "mobilerun", "uiautomator2", "pydoll-python>=3,<4", "browser-use==0.13.5",
 )
-_DIGEST = hashlib.sha256((" ".join(REQUIREMENTS)).encode()).hexdigest()[:12]
+# The four with every dependency pinned (automation_requirements.txt, next to this file): installed with
+# --no-deps so pip resolves nothing on the phone. Left to itself pip takes very long over these four
+# (browser-use pins anthropic and pillow, mobilerun brings arize-phoenix), and a different day could give a
+# different, untested set.
+LOCK = os.path.join(os.path.dirname(os.path.abspath(__file__)), "automation_requirements.txt")
+
+
+def _lock():
+    """The pinned requirements as pip reads them (name==version lines), or b"" when the file is not there."""
+    try:
+        with open(LOCK, "rb") as f:
+            lines = [line.strip() for line in f.read().splitlines()]
+    except OSError:
+        return b""
+    return b"\n".join(line for line in lines if line and not line.startswith(b"#")) + b"\n" if lines else b""
+
+
+_DIGEST = hashlib.sha256(_lock() or (" ".join(REQUIREMENTS)).encode()).hexdigest()[:12]
 ROOT = "/opt/musabai/automation/" + _DIGEST
 SERVER_PATH = ROOT + "/automation_server.py"
-APT = "ca-certificates python3 python3-venv chromium android-tools-adb"
+# adb is Debian 12's package (it provides the older name android-tools-adb).
+APT = "ca-certificates python3 python3-venv chromium adb"
 
 _LOCK = threading.Lock()
 _STATE = {"token": "", "engine": "", "ready_digest": ""}
@@ -205,10 +223,17 @@ def ensure(ctx=None):
                 run(ml.login("export DEBIAN_FRONTEND=noninteractive; apt-get update && "
                              "apt-get install -y --no-install-recommends " + APT))
                 say("Installing Mobilerun, uiautomator2, Pydoll and Browser Use (a few minutes, once)...")
+                pinned = _lock()
+                if pinned:
+                    wanted = "--no-deps -r " + ROOT + "/requirements.txt"
+                    run(ml.login("mkdir -p " + ROOT + " && printf %s "
+                                 + shlex.quote(base64.b64encode(pinned).decode("ascii"))
+                                 + " | base64 -d > " + ROOT + "/requirements.txt"), timeout=120)
+                else:                                   # no pinned file in this build: pip works it out
+                    wanted = " ".join(shlex.quote(r) for r in REQUIREMENTS)
                 run(ml.login("mkdir -p " + ROOT + " && python3 -m venv " + ROOT + "/venv && "
                              + ROOT + "/venv/bin/python -m pip install --upgrade pip && "
-                             + ROOT + "/venv/bin/python -m pip install "
-                             + " ".join(shlex.quote(r) for r in REQUIREMENTS)))
+                             + ROOT + "/venv/bin/python -m pip install " + wanted), timeout=3600)
                 if not exists(ml.login(probe)):
                     raise tools.ToolError("the automation libraries did not verify in the Linux environment; "
                                           "nothing was started")

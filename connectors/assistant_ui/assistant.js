@@ -625,6 +625,10 @@
     }).catch(function (e) { toast(e.message); });
   }
 
+  function openNotificationAccess() {
+    api("/api/assistant/open", { page: "notification_access" }).catch(function (e) { toast(e.message); });
+  }
+
   function openSettings() {
     var body = openSheet(t("settings"));
     var st = phoneStatus();
@@ -637,7 +641,8 @@
       stateOrButton(r, st.accessibility, t("on"), t("enable"), function () { phone.openAccessibilitySettings(); });
       ready.appendChild(r);
       var notif = row(t("notif"), t("notif_sub"));
-      notif.id = "row-notif";
+      if (st.notification_access === undefined) notif.id = "row-notif";      // an older app: the engine tells
+      else stateOrButton(notif, st.notification_access, t("on"), t("enable"), openNotificationAccess);
       ready.appendChild(notif);
       r = row(t("mic"));
       stateOrButton(r, st.microphone, t("on"), t("enable"), function () { phone.listen(S.lang === "ar" ? "ar" : ""); });
@@ -735,9 +740,7 @@
           .catch(function (e) { box.checked = !on; toast(e.message); });
       });
       var nrow = $("#row-notif");
-      if (nrow) stateOrButton(nrow, !!(d.node || {}).notifications, t("on"), t("enable"), function () {
-        api("/api/assistant/open", { page: "notification_access" }).catch(function (e) { toast(e.message); });
-      });
+      if (nrow) stateOrButton(nrow, !!(d.node || {}).notifications, t("on"), t("enable"), openNotificationAccess);
     }).catch(function (e) { mine.appendChild(el("div", "empty-note", e.message)); });
 
     api("/api/connectors").then(function (d) {

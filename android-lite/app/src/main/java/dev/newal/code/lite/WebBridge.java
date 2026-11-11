@@ -89,6 +89,7 @@ final class WebBridge {
                     == PackageManager.PERMISSION_GRANTED);
             o.put("location", act.checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION)
                     == PackageManager.PERMISSION_GRANTED);
+            o.put("notification_access", FirstRunSetup.readsNotifications(act));
             o.put("notifications", Build.VERSION.SDK_INT < 33 || act.checkSelfPermission(
                     "android.permission.POST_NOTIFICATIONS") == PackageManager.PERMISSION_GRANTED);
         } catch (Exception ignored) {

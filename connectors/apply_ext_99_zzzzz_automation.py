@@ -61,7 +61,8 @@ def _soft(path, before, after):
 
 def apply(src, package, replace):
     for name in ("automation_llm.py", "automation_llm_tests.py", "automation_server.py",
-                 "automation_server_tests.py", "automation_runtime.py", "automation_runtime_tests.py"):
+                 "automation_server_tests.py", "automation_runtime.py", "automation_runtime_tests.py",
+                 "automation_requirements.txt"):
         shutil.copyfile(src / name, package / name)
 
     # 1) The free-pool OpenAI endpoint, hooked into the engine HTTP server.
