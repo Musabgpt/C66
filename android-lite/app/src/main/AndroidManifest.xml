@@ -150,7 +150,7 @@
             android:foregroundServiceType="specialUse">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Runs a local AI model and a coding agent on the phone while the user waits for them" />
+                android:value="Runs the user's personal assistant and its model on the phone while the user waits for them" />
         </service>
         <!-- User-opt-in overlay; microphone use is visible in the persistent notification.
              Android permissions cannot be silently granted by the application. -->

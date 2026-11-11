@@ -129,6 +129,7 @@ jobs:
         run: |
           python3 connectors/apply.py .
           python3 -m compileall -q desktop/newal_code connectors
+          node --check desktop/newal_code/ui/assistant.js
           node --check desktop/newal_code/ui/app.js
           node --check desktop/newal_code/ui/connectors.js
           node --check desktop/newal_code/ui/workspace.js
@@ -155,7 +156,7 @@ jobs:
         run: |
           python3 -m unittest discover -s connectors -p test_connectors.py -v
           python3 -m unittest discover -s connectors -p test_chat_shots.py -v
-          PYTHONPATH=desktop:/tmp/newal-pdf python3 -m unittest newal_code.document_tests newal_code.evolution_tests newal_code.addon_tests newal_code.memory_tests newal_code.autonomy_tests newal_code.prompt_tests newal_code.workbench_tests newal_code.mcp_config_tests newal_code.mcp_bundles_tests newal_code.mcp_registry_tests newal_code.browser_router_tests newal_code.search_router_tests newal_code.document_engine_tests newal_code.project_rag_tests newal_code.orchestrator_tests newal_code.execution_tests newal_code.runtime_manager_tests newal_code.termux_bridge_tests newal_code.git_workspace_tests newal_code.observability_tests newal_code.task_state_tests newal_code.task_supervisor_tests newal_code.provider_pool_tests newal_code.free_provider_adapters_tests newal_code.provider_keys_tests newal_code.automation_tests newal_code.auto_update_tests newal_code.managed_linux_tests newal_code.continuity_tests newal_code.tool_search_tests newal_code.tool_protocol_tests newal_code.http_pool_tests newal_code.assistant_events_tests newal_code.websearch_tests newal_code.weather_tests newal_code.ext_task_memory_tests newal_code.automation_llm_tests newal_code.automation_runtime_tests newal_code.automation_server_tests -v
+          PYTHONPATH=desktop:/tmp/newal-pdf python3 -m unittest newal_code.document_tests newal_code.evolution_tests newal_code.addon_tests newal_code.memory_tests newal_code.autonomy_tests newal_code.prompt_tests newal_code.workbench_tests newal_code.mcp_config_tests newal_code.mcp_bundles_tests newal_code.mcp_registry_tests newal_code.browser_router_tests newal_code.search_router_tests newal_code.document_engine_tests newal_code.project_rag_tests newal_code.orchestrator_tests newal_code.execution_tests newal_code.runtime_manager_tests newal_code.termux_bridge_tests newal_code.git_workspace_tests newal_code.observability_tests newal_code.task_state_tests newal_code.task_supervisor_tests newal_code.provider_pool_tests newal_code.free_provider_adapters_tests newal_code.provider_keys_tests newal_code.automation_tests newal_code.auto_update_tests newal_code.managed_linux_tests newal_code.continuity_tests newal_code.tool_search_tests newal_code.tool_protocol_tests newal_code.http_pool_tests newal_code.assistant_events_tests newal_code.websearch_tests newal_code.weather_tests newal_code.ext_task_memory_tests newal_code.automation_llm_tests newal_code.automation_runtime_tests newal_code.automation_server_tests newal_code.assistant_tests -v
           python3 -m unittest discover -s desktop/tests -p test_newal_code.py -q
       - name: Phase 10 real npm MCP install and stdio validation (Linux host)
         env:
@@ -442,9 +443,9 @@ jobs:
           printf '%s  %s\n' "$sum" "$ASSET" > "$ASSET.sha256"
           url="https://github.com/${GH_REPO}/releases/download/${TAG}/${ASSET}"
           cat > notes.md <<NOTES
-          ## MusabAI — تطبيق واحد
+          ## MusabAI — مساعدك الشخصي
 
-          المساعد، ذاكرة المهام، ومحرّكات التحكم بالهاتف والمتصفح (Mobilerun و uiautomator2 و Pydoll و Browser Use) في تطبيق واحد بأيقونة واحدة، على النماذج المجانية.
+          مساعد واحد لأعمالك اليومية: يقرأ بريدك ويلخّصه، يرد على رسائلك، يبحث عن الرحلات ويجهّز الحجز، يكتب المنشورات وينشرها، ويملأ النماذج من معلوماتك. شاشة واحدة بسيطة، على النماذج المجانية.
 
           ### رابط التنزيل المباشر للجوال
           $url
@@ -452,11 +453,11 @@ jobs:
           ### التثبيت
           1. افتح الرابط من متصفح Chrome على الجوال، فيبدأ التنزيل.
           2. اضغط على الملف بعد انتهاء التنزيل. إن طُلب منك، اسمح لـ Chrome بـ «تثبيت تطبيقات غير معروفة» ثم اضغط «تثبيت».
-          3. افتح MusabAI واكتب مثلاً: افتح الفيس بوك وانشر منشور
-             ذاكرة المهام شاشة داخل التطبيق: من الشاشة الرئيسية اختر «ذاكرة المهام».
+          3. افتح MusabAI واضغط «تفعيل» للتحكم بالهاتف، ثم اختر مهمة من الشاشة (البريد، الرسائل، السفر، النشر، النماذج، التذكير) أو اكتب طلبك أو قله بصوتك.
+             من الإعدادات أضف معلوماتك (الاسم، البريد، الجواز...) ليملأ بها النماذج والحجوزات.
 
           إن ظهرت رسالة «لم يتم تثبيت التطبيق»: احذف نسخة MusabAI القديمة من جوالك أولاً ثم ثبّت من جديد.
-          أول استخدام لوكيل الهاتف أو المتصفح يثبّت محرّكه داخل Termux مرة واحدة (بضع دقائق).
+          المهام الطويلة (وكيل الهاتف والمتصفح الخلفي) تحتاج Termux: فعّلها من الإعدادات ← «محركات المهام الطويلة»، وأول استخدام يثبّتها مرة واحدة (بضع دقائق).
 
           ### معلومات البناء
           - البناء رقم ${{ github.run_number }} من الإيداع $GITHUB_SHA

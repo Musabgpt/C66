@@ -595,7 +595,7 @@ BROWSER = Browser()
 # ---------------------------------------------------------------------------
 
 A11Y_NOTE = ("MusabAI's accessibility service did not come back after uiautomator2 detached. The user must switch "
-             "it off and on in Settings > Accessibility > NewAl Code: phone control before the phone tool, the task "
+             "it off and on in Settings > Accessibility > MusabAI: phone control before the phone tool, the task "
              "memory or phone_agent can work again.")
 OLD_ANDROID_NOTE = ("uiautomator2 is not safe on this phone while an accessibility service is switched on: Android 9 "
                     "and older have a system bug that, when uiautomator2 detaches, can restart the phone's interface "
@@ -604,7 +604,7 @@ OLD_ANDROID_NOTE = ("uiautomator2 is not safe on this phone while an accessibili
                     "service off in Settings > Accessibility.")
 A11Y_IDLE_NOTE = ("MusabAI's accessibility service was not reading the screen before this call and still is not: the "
                   "screen may be off or locked, or the service needs to be switched off and on in Settings > "
-                  "Accessibility > NewAl Code: phone control.")
+                  "Accessibility > MusabAI: phone control.")
 
 
 class U2:

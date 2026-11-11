@@ -11,6 +11,15 @@ import zipfile
 APK_SHA256 = "c323e9e75ca29db3a11ab9d93d1f3de8457c03f41c1ee9fe53b541c7d61114ae"
 ASSETS = ("cacert.pem", "python-stdlib.zip", "python-extra.zip", "python-dynload-arm64-v8a.zip", "python-dynload-x86_64.zip")
 LIBRARIES = ("libcrypto_python.so", "libllama-server.so", "libnewalpy.so", "libpython3.14.so", "libsqlite3_python.so", "libssl_python.so")
+# The app's page is the personal assistant's one screen. The developer interface's files are still in the engine
+# source (its own tests read them) but are not shipped: nothing loads them.
+PAGE = ("index.html", "assistant.js", "assistant.css", "markdown.js", "icon.svg", "favicon.ico")
+
+
+def shipped(relative):
+    """Whether an engine file goes into the app (relative: its path inside newal_code)."""
+    parts = relative.split("/")
+    return parts[0] != "ui" or (len(parts) == 2 and parts[1] in PAGE)
 
 
 def package(apk_path, root):
@@ -30,7 +39,7 @@ def package(apk_path, root):
     source = root / "desktop/newal_code"
     with zipfile.ZipFile(assets / "newal_code.zip", "w", zipfile.ZIP_DEFLATED) as engine:
         for file in sorted(source.rglob("*")):
-            if file.is_file() and "__pycache__" not in file.parts:
+            if file.is_file() and "__pycache__" not in file.parts and shipped(file.relative_to(source).as_posix()):
                 engine.write(file, "newal_code/" + file.relative_to(source).as_posix())
         vendor = Path("/tmp/newal-pdf/pypdf")
         if not vendor.is_dir():

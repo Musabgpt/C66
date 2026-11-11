@@ -152,7 +152,7 @@ public final class OpenClawNode {
     static JSONObject contacts(Context ctx, JSONObject a) throws Exception {
         if (!hasPermission(ctx, Manifest.permission.READ_CONTACTS)) {
             throw new IllegalStateException("READ_CONTACTS permission is not granted: allow Contacts access for "
-                    + "MusabAI Preview in Android Settings > Apps > MusabAI Preview > Permissions");
+                    + "MusabAI in Android Settings > Apps > MusabAI > Permissions");
         }
         String q = a.optString("query", a.optString("name", a.optString("text", ""))).trim();
         int limit = Math.max(1, Math.min(100, a.optInt("limit", 25)));
@@ -186,7 +186,7 @@ public final class OpenClawNode {
     static JSONObject calendar(Context ctx, JSONObject a) throws Exception {
         if (!hasPermission(ctx, Manifest.permission.READ_CALENDAR)) {
             throw new IllegalStateException("READ_CALENDAR permission is not granted: allow Calendar access for "
-                    + "MusabAI Preview in Android Settings > Apps > MusabAI Preview > Permissions");
+                    + "MusabAI in Android Settings > Apps > MusabAI > Permissions");
         }
         String q = a.optString("query", a.optString("text", a.optString("name", ""))).trim();
         int days = Math.max(1, Math.min(90, a.optInt("days", 7)));
@@ -268,7 +268,7 @@ public final class OpenClawNode {
         boolean coarse = hasPermission(ctx, Manifest.permission.ACCESS_COARSE_LOCATION);
         if (!fine && !coarse) {
             throw new IllegalStateException("location permission is not granted: allow Location access for "
-                    + "MusabAI Preview in Android Settings > Apps > MusabAI Preview > Permissions");
+                    + "MusabAI in Android Settings > Apps > MusabAI > Permissions");
         }
         LocationManager lm = ctx.getSystemService(LocationManager.class);
         if (lm == null) {

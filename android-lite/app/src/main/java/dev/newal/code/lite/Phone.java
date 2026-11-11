@@ -162,7 +162,7 @@ final class Phone {
             case "clipboard":
                 return clipboard(ctx, a.has("text") ? a.optString("text") : null);
             case "notify":
-                return notify(ctx, a.optString("title", "NewAl Code"), a.optString("text"), a.optBoolean("only_background", false));
+                return notify(ctx, a.optString("title", "MusabAI"), a.optString("text"), a.optBoolean("only_background", false));
             case "task_alarm":
                 TaskAlarms.schedule(ctx);
                 return ok("alarm set for the next scheduled task");
@@ -449,7 +449,7 @@ final class Phone {
             }
         }
         NotificationManager nm = ctx.getSystemService(NotificationManager.class);
-        nm.createNotificationChannel(new NotificationChannel("agent", "NewAl Code: from the agent",
+        nm.createNotificationChannel(new NotificationChannel("agent", "MusabAI",
                 NotificationManager.IMPORTANCE_DEFAULT));
         Notification.Builder nb = new Notification.Builder(ctx, "agent").setContentTitle(title).setContentText(text)
                 .setStyle(new Notification.BigTextStyle().bigText(text)).setSmallIcon(R.drawable.ic_stat)

@@ -30,7 +30,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * Interactive Arabic voice & task floating assistant overlay for MusabAI Preview.
+ * Interactive Arabic voice & task floating assistant overlay for MusabAI.
  * Supports natural wake/attention words ("ام", "يا مصعب", "اسمع", "مرحبا"), instant native phone actions,
  * multi-step screen/agent task execution with live step-by-step progress in a non-focusable status pill,
  * voice interruption ("وقف"), and two-way Arabic TTS conversation.

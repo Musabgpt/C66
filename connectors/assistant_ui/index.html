@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>MusabAI</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="assistant.css">
+</head>
+<body>
+<div id="app">
+  <header id="bar">
+    <button id="open-history" class="icon" type="button" aria-label="History"></button>
+    <div id="brand"><span id="dot"></span><span id="title">MusabAI</span></div>
+    <button id="new-chat" class="icon" type="button" aria-label="New"></button>
+    <button id="open-settings" class="icon" type="button" aria-label="Settings"></button>
+  </header>
+
+  <main id="thread" aria-live="polite">
+    <section id="home">
+      <h1 id="hello"></h1>
+      <p id="hello-sub"></p>
+      <div id="setup" hidden></div>
+      <div id="tasks"></div>
+    </section>
+    <div id="messages"></div>
+  </main>
+
+  <footer id="dock">
+    <div id="approvals"></div>
+    <div id="replies" hidden></div>
+    <form id="composer" autocomplete="off">
+      <button id="mic" class="icon" type="button" aria-label="Voice" hidden></button>
+      <textarea id="input" dir="auto" rows="1"></textarea>
+      <button id="send" class="icon primary" type="submit" aria-label="Send"></button>
+    </form>
+  </footer>
+</div>
+
+<div id="sheet" class="sheet" hidden>
+  <div class="sheet-card" role="dialog" aria-modal="true">
+    <header><span id="sheet-title"></span><button id="sheet-close" class="icon" type="button" aria-label="Close"></button></header>
+    <div id="sheet-body"></div>
+  </div>
+</div>
+<div id="toast" hidden></div>
+
+<script src="markdown.js"></script>
+<script src="assistant.js"></script>
+</body>
+</html>

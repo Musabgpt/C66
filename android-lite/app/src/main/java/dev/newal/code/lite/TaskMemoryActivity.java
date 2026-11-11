@@ -131,7 +131,7 @@ public class TaskMemoryActivity extends Activity {
                     + ": الشاشة مختلفة عمّا يتوقعه الإجراء، فأكمل من هنا أو اطلب من المساعد.\n\n" + r.message;
         }
         if (r.message.startsWith("ACCESSIBILITY_OFF")) {
-            return "⚠️ فعّل خدمة إمكانية الوصول «NewAl Code: التحكم بالهاتف» من الإعدادات ثم جرّب مجددًا.";
+            return "⚠️ فعّل خدمة إمكانية الوصول «MusabAI: التحكم بالهاتف» من الإعدادات ثم جرّب مجددًا.";
         }
         return "⚠️ " + r.message;
     }

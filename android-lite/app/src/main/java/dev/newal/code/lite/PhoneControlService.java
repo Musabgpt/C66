@@ -87,7 +87,7 @@ public class PhoneControlService extends AccessibilityService {
             throw new IllegalStateException("ACCESSIBILITY_STOPPED: the phone-control accessibility service is switched "
                     + "on but Android has dropped its connection (this happens after an app update, a crash, or after "
                     + "another automation tool such as uiautomator2 was attached). The user must switch it off and on "
-                    + "again in Settings > Accessibility > Installed apps > NewAl Code: phone control. Do not retry the "
+                    + "again in Settings > Accessibility > Installed apps > MusabAI: phone control. Do not retry the "
                     + "screen, taps or typing until the user says it is on.");
         }
         throw new IllegalStateException("no window on the screen right now");

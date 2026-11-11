@@ -99,7 +99,7 @@ final class TaskAlarms {
         if (titles.isEmpty()) return;
         NotificationManager nm = c.getSystemService(NotificationManager.class);
         if (nm == null) return;
-        nm.createNotificationChannel(new NotificationChannel("agent", "NewAl Code: from the agent",
+        nm.createNotificationChannel(new NotificationChannel("agent", "MusabAI",
                 NotificationManager.IMPORTANCE_DEFAULT));
         String text = String.join("، ", titles) + " — افتح MusabAI لتنفيذها.";
         Notification.Builder nb = new Notification.Builder(c, "agent").setContentTitle("مهمة مجدولة حان وقتها")

@@ -2,11 +2,21 @@
 
 Performance development copy of `Musabgpt/NewAl-Cloud`. See [C66 performance notes](C66_PERFORMANCE.md) for changes and verification scope.
 
-Android coding assistant with persistent project memory, document tools, official OAuth/MCP connections, Termux execution and tested engine candidates.
+MusabAI is a personal assistant on the user's Android phone: it reads and answers email and messages, books travel, publishes posts, fills forms and keeps reminders, with free models. (The repository began as an Android coding assistant; its developer interface and tools are still in the engine source but are no longer shipped or offered.)
+
+## The personal assistant
+
+- **One screen** (`connectors/assistant_ui/`): a conversation, six everyday tasks (email, messages, travel, posts, forms, reminders), voice, and a short settings sheet. Arabic (right to left) and English, light and dark. It is the only page in the app's package (`package_baseline.py` leaves the developer interface out, `verify_package.py` checks it).
+- **One prompt** (`connectors/assistant_prompt.md`), written whole for everyday work: how to read mail and messages, how to write and publish, how to search and prepare a booking, how to fill a form, and what must never happen without the user (paying, passwords, a recipient they did not name).
+- **An assistant's tools only** (`lean.py`, set by `apply_assistant.py`): `phone`, `phone_sequence`, `phone_routine`, `phone_agent`, `screen_look`, `browser`, `browser_agent`, `web_search`, `web_fetch`, `weather`, `my_info`, reminders (`scheduled_task_*`), and Gmail and Google Calendar when connected. No file, shell, GitHub or code tools.
+- **My details** (`my_info`, `connectors/assistant.py`): the user's name, email, phone, city, passport and anything else they ask to keep, in one private file on the phone. The model always knows which details are saved and reads their values only when a form or a booking needs them.
+- **Ask before sending** (on by default): a reply sent from a notification and an email show an approval first, in every permission mode. Messages and calls to a number open ready for the user's own tap, and payment is always the user's.
+- The engine is no longer replaced on its own from the other project's update channel (that build carries the developer interface); this app updates through its own APK. `automatic_updates: true` in the settings switches it back on.
+- `connectors/apply_assistant.py` applies all of this last, on the final engine files; `connectors/assistant_tests.py` covers it.
 
 This development line starts from successful Action 216 (`d8a270382c51e009148fc2ae034beb40788fdf6c`). It keeps that build's pinned Action 43 Python engine and byte-verified Action 125 native libraries.
 
-## Using the app
+## The engine underneath (developer notes from the earlier interface)
 
 - Start or open a project conversation, then use **Workspace / مساحة العمل** for Files, Memory and Improve.
 - Files supports HTML, Markdown, PDF, ZIP and TXT import, creation, reading and export.
@@ -31,8 +41,8 @@ SQLite database (`android-lite/app/src/main/assets/task_memory/library.db.gzip`,
 - A phone request that fits a procedure reaches the model with it ("افتح فيسبوك وانشر منشور يقول صباح الخير" comes with
   the Facebook post procedure and its text), and the model runs it with `phone_routine id=tm:...`. The app carries out
   each step, trying every label, and stops where the screen differs so the model goes on by hand.
-- **Task Memory** is a screen inside the app (the phone home screen's Task memory group opens it): categories,
-  sources, search, "try a request", procedure details and a Run button (it confirms before posting or sending).
+- **Task Memory** is a screen inside the app (Settings, "Tasks I know by heart"): categories, sources, search,
+  "try a request", procedure details and a Run button (it confirms before posting or sending).
   MusabAI is one app with one launcher icon.
 - Rebuilding the library from the datasets and how it is tested: [tools/task_memory](tools/task_memory/README.md).
 

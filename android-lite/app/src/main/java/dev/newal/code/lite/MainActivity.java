@@ -68,7 +68,7 @@ public class MainActivity extends Activity {
                 Intent pick = params.createIntent();
                 pick.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, params.getMode() == FileChooserParams.MODE_OPEN_MULTIPLE);
                 try {
-                    startActivityForResult(Intent.createChooser(pick, "NewAl Code"), FILES);
+                    startActivityForResult(Intent.createChooser(pick, "MusabAI"), FILES);
                     return true;
                 } catch (Exception e) {
                     files = null;

@@ -556,3 +556,7 @@ if __name__ == "__main__":
             if not dest.exists():
                 raise SystemExit(f"Phone live overlay has no engine counterpart: {dest}")
             shutil.copyfile(path, dest)
+    # MusabAI is a personal assistant: its prompt, its tools and its page replace the coding agent's. Applied
+    # last, on the final engine files (connectors/apply_assistant.py).
+    import apply_assistant
+    apply_assistant.apply(target / "connectors", target / "desktop/newal_code", replace)

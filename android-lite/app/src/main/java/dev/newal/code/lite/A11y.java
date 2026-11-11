@@ -36,13 +36,13 @@ final class A11y {
         if (enabled) {
             throw new IllegalStateException("ACCESSIBILITY_STOPPED: the phone-control accessibility service is switched "
                     + "on but Android has stopped it (this happens after an app update or a crash). The user must "
-                    + "switch it off and on again in Settings > Accessibility > Installed apps > NewAl Code: phone "
+                    + "switch it off and on again in Settings > Accessibility > Installed apps > MusabAI: phone "
                     + "control (the page has been opened for them). Do not retry the screen, taps or typing until the "
                     + "user says it is on.");
         }
         throw new IllegalStateException("ACCESSIBILITY_OFF: the screen, taps and typing need the phone-control "
                 + "accessibility service, and it is off. The user turns it on in Settings > Accessibility > Installed "
-                + "apps > NewAl Code: phone control (the page has been opened for them). Do not retry the screen, taps "
+                + "apps > MusabAI: phone control (the page has been opened for them). Do not retry the screen, taps "
                 + "or typing until the user says it is on.");
     }
 

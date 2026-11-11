@@ -189,7 +189,7 @@ final class TaskRunner {
         }
         if (needsScreen && !ctx.screenControl()) {
             r.message = "ACCESSIBILITY_OFF: the taps need MusabAI's phone-control accessibility service. Turn it on in "
-                    + "Settings > Accessibility > Installed apps > NewAl Code: phone control.";
+                    + "Settings > Accessibility > Installed apps > MusabAI: phone control.";
             return r;
         }
         for (int i = 0; i < steps.length(); i++) {

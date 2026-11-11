@@ -250,7 +250,7 @@ final class WebBridge {
             Intent i = new Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
             i.putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL,
                     android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
-            i.putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, "NewAl Code");
+            i.putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, "MusabAI");
             if (lang != null && !lang.isEmpty()) {
                 i.putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE, lang);
             }

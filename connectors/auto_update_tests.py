@@ -109,6 +109,7 @@ class AutomaticUpdateTests(unittest.TestCase):
             except OSError as exc:
                 raise e.tools.ToolError('Could not stage update: network interrupted') from exc
         with patch.object(auto, 'read_feed', return_value=feed), \
+             patch.object(auto, 'enabled', return_value=True), \
              patch.object(e._MANAGER, 'stage', side_effect=interrupted):
             for attempt in range(1, 4):
                 with self.assertRaises(e.tools.ToolError):
