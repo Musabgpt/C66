@@ -854,17 +854,25 @@
   }
 
   // ------------------------------------------------------------------ start
+  function language(setting) {
+    var lang = setting || (/^ar/i.test(navigator.language || "") ? "ar" : "en");
+    S.lang = WORDS[lang] ? lang : "en";
+    document.documentElement.lang = S.lang;
+    document.documentElement.dir = S.lang === "ar" ? "rtl" : "ltr";
+  }
   function start() {
+    // The screen is there at once, in the phone's language; the engine's answer then fills in the rest.
+    language(store("ma.lang"));
+    wire();
+    renderHome();
+    paintBars();
     api("/api/state").then(function (state) {
       S.state = state;
-      var lang = (state.settings && state.settings.lang) || "";
-      if (!lang) lang = /^ar/i.test(navigator.language || "") ? "ar" : "en";
-      S.lang = WORDS[lang] ? lang : "en";
-      document.documentElement.lang = S.lang;
-      document.documentElement.dir = S.lang === "ar" ? "rtl" : "ltr";
-      wire();
-      renderHome();
-      paintBars();
+      var before = S.lang;
+      var chosen = (state.settings && state.settings.lang) || "";
+      store("ma.lang", chosen);
+      language(chosen);
+      if (S.lang !== before) { $("#input").placeholder = t("placeholder"); renderHome(); }
       connect();
       startTermux();
       api("/api/assistant").then(function (d) { S.me = d; greet(); }).catch(function () {});
@@ -876,9 +884,7 @@
         if (/[?&]connections=1/.test(location.search)) openSettings();
       });
     }).catch(function () {
-      document.documentElement.dir = "rtl";
-      $("#hello").textContent = "MusabAI";
-      $("#hello-sub").textContent = WORDS.ar.offline;
+      $("#hello-sub").textContent = t("offline");
     });
   }
   window.MusabAssistant = { doing: doing, words: WORDS };
