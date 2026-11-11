@@ -58,7 +58,13 @@ and all on the free model pool (no key of the user's own):
   accessibility service, and on some Android versions the service comes back dead after the detach. So
   `phone_power` attaches for one call only, always detaches, then checks the bridge (`a11y_state` plus a real
   screen read) and repeats the attach/detach cycle until it is back; if it never is, the result says the user
-  must switch the service off and on. It never runs while `phone_agent` is working.
+  must switch the service off and on. It never runs while `phone_agent` is working, and no uiautomator2 server is
+  left running after a call.
+- On Android 9 and older that detach is not safe at all while any accessibility service is on: the two death
+  handlers in `UiAutomationManager` race (Android 10 added the lock), and `system_server` can die with "Windows
+  for accessibility callback already set!", restarting the whole interface (seen on Android 9). There
+  `phone_power` checks the Android version and the accessibility settings over ADB first and refuses before it
+  attaches; with every accessibility service off it works.
 - Every model call of these engines goes to the engine's local `/v1/free` endpoint (`connectors/automation_llm.py`):
   OpenAI-compatible, streaming or not, structured output on any model, an answer or a clear error in bounded time
   (a model that stalls or answers with nothing is replaced and cools down).

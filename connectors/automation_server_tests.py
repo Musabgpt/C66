@@ -49,17 +49,46 @@ class FakeDevice:
         return Found()
 
 
+class FakeAdb:
+    """The phone over adb: its Android version, its accessibility settings, its processes."""
+
+    def __init__(self, test):
+        self.test = test
+
+    def shell(self, command, timeout=None):
+        test = self.test
+        if command.startswith("getprop ro.build.version.sdk"):
+            return str(test.sdk)
+        if command.startswith("settings get secure accessibility_enabled"):
+            return "1\n%s" % test.services if test.services else "0\nnull"
+        if command.startswith("pgrep"):
+            test.log.append("pgrep")
+            return "4242" if test.leftover else ""
+        if command.startswith("pkill"):
+            test.log.append("pkill")
+            test.leftover = False
+            return ""
+        raise AssertionError("unexpected adb shell: " + command)
+
+
 class Uiautomator2Tests(unittest.TestCase):
     """uiautomator2 takes Android's accessibility away from the app while attached: every call
     detaches again and makes sure the app's bridge is back."""
 
     def setUp(self):
         self.log = []
-        self.saved = (sys.modules.get("uiautomator2"), A.phone_call, A.PHONE_KEY, A.U2.SETTLE)
+        self.saved = (sys.modules.get("uiautomator2"), sys.modules.get("adbutils"), A.phone_call, A.PHONE_KEY,
+                      A.U2.SETTLE)
         self.broken_device = False
+        self.sdk = 34                       # Android 14
+        self.services = "dev.newal.code.lite.connectors/dev.newal.code.lite.PhoneControlService"
+        self.leftover = False               # a uiautomator2 server still running after the detach
         fake = types.ModuleType("uiautomator2")
-        fake.connect = lambda serial=None: (self.log.append("attach"), FakeDevice(self.log, self.broken_device))[1]
+        fake.connect = lambda adb=None: (self.log.append("attach"), FakeDevice(self.log, self.broken_device))[1]
         sys.modules["uiautomator2"] = fake
+        adbutils = types.ModuleType("adbutils")
+        adbutils.adb = types.SimpleNamespace(device=lambda serial=None: FakeAdb(self))
+        sys.modules["adbutils"] = adbutils
         A.PHONE_KEY = "key"
         A.U2.SETTLE = 0
         # The app's state at each check, in order (the last one repeats). A call checks once before it
@@ -87,17 +116,22 @@ class Uiautomator2Tests(unittest.TestCase):
         self.u2 = A.U2()
 
     def tearDown(self):
-        module, A.phone_call, A.PHONE_KEY, A.U2.SETTLE = self.saved
-        if module is None:
-            sys.modules.pop("uiautomator2", None)
-        else:
-            sys.modules["uiautomator2"] = module
+        u2, adbutils, A.phone_call, A.PHONE_KEY, A.U2.SETTLE = self.saved
+        for name, module in (("uiautomator2", u2), ("adbutils", adbutils)):
+            if module is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = module
+
+    def steps(self):
+        """What happened on the phone, without the look for a leftover server after each detach."""
+        return [step for step in self.log if step != "pgrep"]
 
     def test_a_call_attaches_acts_detaches_and_finds_the_bridge_back(self):
         self.bridge = ["ok"]
         out = self.u2.run("dump", {})
         self.assertEqual(out, {"ok": True, "xml": "<hierarchy/>", "accessibility": "restored"})
-        self.assertEqual(self.log, ["attach", "info", "dump", "stop"])
+        self.assertEqual(self.log, ["attach", "info", "dump", "stop", "pgrep"])
         self.assertEqual(self.asked, ["a11y_state", "screen_tree"] * 2)          # before the attach, after the detach
 
     def test_a_bridge_that_comes_back_dead_is_revived_by_another_detach_cycle(self):
@@ -105,7 +139,7 @@ class Uiautomator2Tests(unittest.TestCase):
         out = self.u2.run("press", {"key": "back"})
         self.assertEqual((out["accessibility"], out["repair_cycles"]), ("restored", 1))
         self.assertNotIn("note", out)
-        self.assertEqual(self.log, ["attach", "info", "press back", "stop", "attach", "info", "stop"])
+        self.assertEqual(self.steps(), ["attach", "info", "press back", "stop", "attach", "info", "stop"])
 
     def test_a_service_that_looks_connected_but_reads_nothing_is_not_back(self):
         self.bridge = ["ok", "looks-alive", "ok"]
@@ -126,7 +160,7 @@ class Uiautomator2Tests(unittest.TestCase):
         self.bridge = ["off"]
         out = self.u2.run("dump", {})
         self.assertEqual(out, {"ok": True, "xml": "<hierarchy/>"})               # nothing to restore, nothing to say
-        self.assertEqual(self.log, ["attach", "info", "dump", "stop"])
+        self.assertEqual(self.steps(), ["attach", "info", "dump", "stop"])
         self.assertEqual(self.asked, ["a11y_state"])                             # it only looked, once
 
     def test_a_bridge_that_was_already_down_gets_one_try_and_an_honest_word(self):
@@ -147,7 +181,7 @@ class Uiautomator2Tests(unittest.TestCase):
             self.u2.run("app_current", {})
         self.assertIn("device went away", str(failed.exception))
         self.assertNotIn("switch it off", str(failed.exception))
-        self.assertEqual(self.log[-1], "stop")
+        self.assertEqual(self.steps()[-1], "stop")
         self.bridge = ["ok", "unbound"]
         with self.assertRaises(RuntimeError) as failed:
             self.u2.run("app_current", {})
@@ -159,7 +193,35 @@ class Uiautomator2Tests(unittest.TestCase):
         with self.assertRaises(RuntimeError) as failed:
             self.u2.run("dump", {})
         self.assertIn("did not start", str(failed.exception))
-        self.assertEqual(self.log, ["attach", "info", "stop"])
+        self.assertEqual(self.steps(), ["attach", "info", "stop"])
+
+    def test_android_9_with_an_accessibility_service_on_is_never_attached(self):
+        """Its detach can restart the phone's whole interface (system_server dies) or kill the service."""
+        self.bridge = ["ok"]
+        for self.sdk in (26, 28):
+            out = self.u2.run("dump", {})
+            self.assertFalse(out["ok"])
+            self.assertIn("Android 9 and older", out["error"])
+            self.assertIn("phone tool or phone_agent", out["error"])
+        self.assertEqual(self.log, [])                                           # nothing was started on the phone
+        self.assertEqual(self.asked, [])
+        self.services = "com.google.android.marvin.talkback/.TalkBackService"    # somebody else's service counts too
+        self.assertFalse(self.u2.run("press", {"key": "home"})["ok"])
+        self.services = ""                                                       # all switched off: nothing to break
+        self.bridge = ["off"]
+        self.assertEqual(self.u2.run("dump", {}), {"ok": True, "xml": "<hierarchy/>"})
+        self.sdk, self.services = 29, "a/b"                                      # Android 10 fixed it
+        self.bridge = ["ok"]
+        self.assertEqual(self.u2.run("dump", {})["accessibility"], "restored")
+
+    def test_a_server_left_running_is_killed(self):
+        """A uiautomator2 server that outlives the call keeps every accessibility service unbound."""
+        self.bridge = ["ok"]
+        self.leftover = True
+        out = self.u2.run("dump", {})
+        self.assertEqual(self.log, ["attach", "info", "dump", "stop", "pgrep", "pkill"])
+        self.assertEqual(out["accessibility"], "restored")
+        self.assertFalse(self.leftover)
 
     def test_an_app_from_before_a11y_state_is_asked_for_the_screen(self):
         self.bridge = ["old-app"]

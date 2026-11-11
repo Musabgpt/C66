@@ -23,6 +23,7 @@ backend is installed. It listens only on 127.0.0.1 and requires a per-start bear
 from __future__ import annotations
 
 import asyncio
+import atexit
 import base64
 import concurrent.futures
 import hashlib
@@ -35,7 +36,7 @@ import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = 3
+VERSION = 4
 
 os.environ.setdefault("ANONYMIZED_TELEMETRY", "false")      # Browser Use: nothing leaves the phone but the task
 
@@ -596,6 +597,11 @@ BROWSER = Browser()
 A11Y_NOTE = ("MusabAI's accessibility service did not come back after uiautomator2 detached. The user must switch "
              "it off and on in Settings > Accessibility > NewAl Code: phone control before the phone tool, the task "
              "memory or phone_agent can work again.")
+OLD_ANDROID_NOTE = ("uiautomator2 is not safe on this phone while an accessibility service is switched on: Android 9 "
+                    "and older have a system bug that, when uiautomator2 detaches, can restart the phone's interface "
+                    "or leave the accessibility service dead. Use the phone tool or phone_agent instead (they work "
+                    "through accessibility). phone_power works here only after the user switches every accessibility "
+                    "service off in Settings > Accessibility.")
 A11Y_IDLE_NOTE = ("MusabAI's accessibility service was not reading the screen before this call and still is not: the "
                   "screen may be off or locked, or the service needs to be switched off and on in Settings > "
                   "Accessibility > NewAl Code: phone control.")
@@ -610,30 +616,77 @@ class U2:
     Android 9, whose handler for a dying UiAutomation is unsynchronized: about one detach in three),
     while one more attach-and-detach revives it. So a call notes how the bridge was, attaches, acts,
     detaches, checks that the bridge reads the screen again, and repeats the detach cycle until it
-    does. A bridge the user never switched on is left alone."""
+    does. A bridge the user never switched on is left alone. On Android 9 and older the detach
+    itself can crash the system while any accessibility service is on: there it does not attach."""
 
     REPAIRS = 4          # extra attach-and-detach cycles when a working bridge stays dead
     SETTLE = 8.0         # seconds Android gets to rebind the bridge after a detach
+    SAFE_SDK = 29        # Android 10 serialized UiAutomationManager.destroyUiAutomationService
+    SERVER = "com.wetest.uia2.Main"
 
     def __init__(self):
         self.serial = None
         self._lock = threading.Lock()
 
-    def _attach(self, serial=None):
-        import uiautomator2 as u2
+    def _adb(self, serial=None):
+        import adbutils
         serial = serial or self.serial
-        device = u2.connect(serial) if serial else u2.connect()
+        return adbutils.adb.device(serial=serial) if serial else adbutils.adb.device()
+
+    def unsafe(self, adb):
+        """Why uiautomator2 must not attach to this phone now, or "" when it may.
+
+        uiautomator2 detaches by killing its server. On Android 9 and older the two death handlers
+        in UiAutomationManager race (no lock, no null check): the accessibility services are then
+        registered twice and system_server dies with "Windows for accessibility callback already
+        set!" (seen on Android 9: the whole interface restarted), or the service stays bound but
+        dead. With no accessibility service switched on there is nothing to register twice."""
         try:
-            device.info                   # starts the server now: an attach that fails, fails here
+            sdk = int(str(adb.shell("getprop ro.build.version.sdk", timeout=20)).strip())
+        except ValueError:
+            sdk = 0
+        if sdk >= self.SAFE_SDK:
+            return ""
+        state = str(adb.shell("settings get secure accessibility_enabled; "
+                              "settings get secure enabled_accessibility_services", timeout=20))
+        lines = [line.strip() for line in state.splitlines() if line.strip()]
+        on = lines[0] != "0" if lines else False
+        services = lines[1] if len(lines) > 1 else ""
+        return OLD_ANDROID_NOTE if on and services not in ("", "null") else ""
+
+    def _attach(self, adb):
+        import uiautomator2 as u2
+        try:
+            device = u2.connect(adb)      # starts the server
         except Exception:
-            self._detach(device)          # never leave a half-started server holding the screen
+            self._sweep(adb)              # never leave a half-started server holding the screen
+            raise
+        try:
+            device.info                   # an attach that does not answer, fails here
+        except Exception:
+            self._detach(device, adb)
             raise
         return device
 
-    @staticmethod
-    def _detach(device):
+    def _detach(self, device, adb):
         try:
             device.stop_uiautomator()
+        except Exception:
+            pass
+        try:
+            atexit.unregister(device.stop_uiautomator)        # the library registers one per attach
+        except Exception:
+            pass
+        self._sweep(adb)
+
+    def _sweep(self, adb):
+        """No uiautomator2 server outlives a call: one that does keeps every accessibility service
+        unbound. ([M] keeps the shell that runs pgrep out of its own match.)"""
+        pattern = self.SERVER[:-4] + "[" + self.SERVER[-4] + "]" + self.SERVER[-3:]
+        try:
+            if str(adb.shell("pgrep -f '%s'" % pattern, timeout=20)).strip():
+                adb.shell("pkill -f '%s'" % pattern, timeout=20)
+                time.sleep(1.0)
         except Exception:
             pass
 
@@ -674,10 +727,10 @@ class U2:
                 return False
             time.sleep(1.0)
 
-    def _release(self, device, before):
+    def _release(self, device, adb, before):
         """Detach, then bring back the bridge this call took away. Returns (back, repair cycles);
         back is None when there was no bridge to bring back."""
-        self._detach(device)
+        self._detach(device, adb)
         if before not in ("ok", "broken"):
             return None, 0
         back = self.bridge_back()
@@ -686,7 +739,7 @@ class U2:
         while not back and cycles < limit:
             cycles += 1
             try:
-                self._detach(self._attach())
+                self._detach(self._attach(adb), adb)
             except Exception:
                 pass
             back = self.bridge_back()
@@ -695,14 +748,18 @@ class U2:
     def run(self, op, args):
         """One uiautomator2 action, with the bridge restored afterwards."""
         with self._lock:
+            adb = self._adb(args.get("serial"))
+            refusal = self.unsafe(adb)
+            if refusal:
+                return {"ok": False, "error": refusal}
             before = self.bridge()
-            device = self._attach(args.get("serial"))
+            device = self._attach(adb)
             failure = None
             try:
                 out = self._op(device, op, args)
             except Exception as e:
                 failure, out = e, None
-            back, cycles = self._release(device, before)
+            back, cycles = self._release(device, adb, before)
             note = "" if back in (None, True) else (A11Y_NOTE if before == "ok" else A11Y_IDLE_NOTE)
             if failure is not None:
                 raise RuntimeError(_short(failure) + ("  " + note if note else ""))
