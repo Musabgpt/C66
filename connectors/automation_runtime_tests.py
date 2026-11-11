@@ -58,7 +58,13 @@ class _Fake(BaseHTTPRequestHandler):
             if body.get("op") == "fail":
                 return self._send(200, {"ok": False, "error": "no device"})
             if body.get("op") == "dump":
-                return self._send(200, {"ok": True, "xml": "<hierarchy/>"})
+                return self._send(200, {"ok": True, "xml": "<hierarchy/>", "accessibility": "restored"})
+            if body.get("op") == "press":
+                return self._send(200, {"ok": True, "accessibility": "suspended", "repair_cycles": 4,
+                                        "note": "The user must switch it off and on in Settings."})
+            if body.get("op") == "app_current":
+                return self._send(200, {"ok": True, "current": {"package": "a.b"}, "accessibility": "unavailable",
+                                        "repair_cycles": 1, "note": "The screen may be off or locked."})
             return self._send(200, {"ok": True, "output": "ok"})
         self._send(404, {})
 
@@ -134,8 +140,14 @@ class AutomationToolsTests(unittest.TestCase):
     def test_adb_and_power(self):
         AR.t_adb_connect(self.ctx, "connect", address="1.2.3.4:5555")
         self.assertEqual(_Fake.seen[-1][1], {"op": "adb_connect", "address": "1.2.3.4:5555", "code": ""})
-        text, _ = AR.t_phone_power(self.ctx, "dump")
-        self.assertEqual(text, "<hierarchy/>")
+        text, meta = AR.t_phone_power(self.ctx, "dump")
+        self.assertEqual((text, meta["accessibility"]), ("<hierarchy/>", "restored"))
+        text, meta = AR.t_phone_power(self.ctx, "press", key="back")       # the bridge did not come back
+        self.assertIn("switch it off and on in Settings", text)
+        self.assertEqual(meta["accessibility"], "suspended")
+        text, meta = AR.t_phone_power(self.ctx, "app_current")             # it was already down before the call
+        self.assertIn("a.b", text)
+        self.assertTrue(text.endswith("The screen may be off or locked."))
         with self.assertRaises(tools.ToolError):
             AR.t_adb_connect(self.ctx, "reboot")
         with self.assertRaises(tools.ToolError) as failed:

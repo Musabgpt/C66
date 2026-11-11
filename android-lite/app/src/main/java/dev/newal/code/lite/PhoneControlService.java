@@ -80,7 +80,28 @@ public class PhoneControlService extends AccessibilityService {
             }
             Thread.sleep(200);             // between two screens there is none
         }
+        if (!alive()) {
+            if (on == this) {
+                on = null;                 // the next call waits for a rebind, then says what the user must do
+            }
+            throw new IllegalStateException("ACCESSIBILITY_STOPPED: the phone-control accessibility service is switched "
+                    + "on but Android has dropped its connection (this happens after an app update, a crash, or after "
+                    + "another automation tool such as uiautomator2 was attached). The user must switch it off and on "
+                    + "again in Settings > Accessibility > Installed apps > NewAl Code: phone control. Do not retry the "
+                    + "screen, taps or typing until the user says it is on.");
+        }
         throw new IllegalStateException("no window on the screen right now");
+    }
+
+    /** Whether Android still talks to this service. After another accessibility client detached (a UiAutomation, as
+     *  uiautomator2 uses), Android can leave the service bound but without its connection: it then sees no window
+     *  and takes no action, and it stays so until it is bound again. */
+    boolean alive() {
+        try {
+            return getServiceInfo() != null;
+        } catch (RuntimeException e) {
+            return false;
+        }
     }
 
     synchronized JSONObject screen() throws Exception {

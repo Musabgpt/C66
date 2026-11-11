@@ -27,7 +27,9 @@ POLICY = (
     "it\"), call phone_agent once with the goal, naming the exact app, person and text: it reads the real screen "
     "and taps, types and swipes until it is done, then reports. If it reports not completed, look at the screen "
     "and finish by hand. phone_power (uiautomator2) is only for what these cannot reach, after adb_connect has "
-    "paired this phone's own wireless ADB.\n"
+    "paired this phone's own wireless ADB; while one of its calls runs Android suspends the accessibility tools, "
+    "and it brings them back before returning. If it reports accessibility suspended, stop and tell the user to "
+    "switch MusabAI's accessibility service off and on.\n"
     "- Web work in the background (reading a page, searching a site, a form that needs no login of the user's): "
     "browser op=open, then op=extract to read the page and see the names of its fields, buttons and links, then "
     "click or type by those names (type with submit=true for a search box). For a whole web task (\"find the "
@@ -59,7 +61,7 @@ def _soft(path, before, after):
 
 def apply(src, package, replace):
     for name in ("automation_llm.py", "automation_llm_tests.py", "automation_server.py",
-                 "automation_runtime.py", "automation_runtime_tests.py"):
+                 "automation_server_tests.py", "automation_runtime.py", "automation_runtime_tests.py"):
         shutil.copyfile(src / name, package / name)
 
     # 1) The free-pool OpenAI endpoint, hooked into the engine HTTP server.
@@ -121,7 +123,7 @@ def apply(src, package, replace):
 
     # 5) Open threads pick up the new prompt.
     replace(package / "agent_policy.py", "MARKER = 'MusabAI behavior profile v14'",
-            "MARKER = 'MusabAI behavior profile v16'")
+            "MARKER = 'MusabAI behavior profile v17'")
 
     # 6) When a mode asks before a phone action, the question names what the new tools will do
     # (they have no "action" argument: the question read "phone: ?").
@@ -137,3 +139,4 @@ def apply(src, package, replace):
     with open(package / "claude_parity_tests.py", "a", encoding="utf-8") as f:
         f.write("\nfrom .automation_llm_tests import AutomationLlmTests  # noqa: E402,F401 - parity CI\n")
         f.write("from .automation_runtime_tests import AutomationToolsTests, AutomationEnsureTests  # noqa: E402,F401\n")
+        f.write("from .automation_server_tests import Uiautomator2Tests, PhoneCallTests, ServerTests, TargetTests  # noqa: E402,F401\n")

@@ -85,6 +85,18 @@ final class Phone {
                 return PhoneControlService.need().screenshotBytes();
             case "gesture":
                 return PhoneControlService.need().gestureXY(a);
+            case "a11y_state": {
+                // Asked by the automation server after uiautomator2 detaches. It only looks: unlike the screen
+                // actions it never waits for the service and never opens the settings page.
+                PhoneControlService service = PhoneControlService.on;
+                boolean alive = service != null && service.alive();
+                JSONObject state = ok(service == null ? "accessibility service not connected"
+                        : alive ? "accessibility service connected" : "accessibility service connected but not answering");
+                state.put("enabled", A11y.enabled(ctx));
+                state.put("connected", service != null);
+                state.put("alive", alive);
+                return state;
+            }
             case "tap":
                 return PhoneControlService.need().tap(a);
             case "type":

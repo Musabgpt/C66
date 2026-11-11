@@ -332,7 +332,9 @@ def t_phone_agent(ctx, goal, max_steps=18):
 @tools.tool("phone_power",
             "Low-level phone control through uiautomator2 when this phone's own ADB is connected (adb_connect "
             "first): op=dump (the UI as XML), click_text, click_xy, send_keys, press, app_start or app_current. "
-            "Only for what the accessibility tools cannot reach; otherwise use phone or phone_agent.",
+            "Only for what the accessibility tools cannot reach; otherwise use phone or phone_agent. While a call "
+            "runs, Android suspends MusabAI's own accessibility service; the call detaches and brings it back "
+            "before it returns, and says so if it could not.",
             {"op": tools._s("dump, click_text, click_xy, send_keys, press, app_start or app_current"),
              "text": tools._s("text for click_text/send_keys"),
              "x": tools._i("x for click_xy"), "y": tools._i("y for click_xy"),
@@ -342,10 +344,14 @@ def t_phone_agent(ctx, goal, max_steps=18):
 def t_phone_power(ctx, op, text="", x=0, y=0, key="", package="", clear=False):
     body = {"op": str(op), "text": text, "x": int(x or 0), "y": int(y or 0),
             "key": key, "package": package, "clear": bool(clear)}
-    out = _ensure_and_call(ctx, "/u2", body, timeout=120)
-    if isinstance(out, dict) and "xml" in out:
-        return str(out["xml"]), {"op": op}
-    return json.dumps(out, ensure_ascii=False)[:1500], (out if isinstance(out, dict) else {})
+    out = _ensure_and_call(ctx, "/u2", body, timeout=300)
+    if not isinstance(out, dict):
+        return str(out)[:1500], {}
+    note = "\n" + str(out["note"]) if out.get("accessibility") in ("suspended", "unavailable") and out.get("note") else ""
+    if "xml" in out:
+        return str(out["xml"]) + note, {"op": op, "accessibility": out.get("accessibility")}
+    shown = {k: v for k, v in out.items() if k != "note"}
+    return json.dumps(shown, ensure_ascii=False)[:1500] + note, out
 
 
 @tools.tool("browser",

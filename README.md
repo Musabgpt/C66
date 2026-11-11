@@ -54,6 +54,11 @@ and all on the free model pool (no key of the user's own):
   left by an older app, and exposes the tools.
 - Mobilerun drives the phone through MusabAI's own accessibility bridge (`MusabDriver` over the app's phone server:
   `screen_tree`, `gesture`, `tap`, `type`), so it needs neither the Portal app nor ADB, and no screenshots.
+- Android lets only one automation hold the screen: while uiautomator2 is attached it unbinds the app's
+  accessibility service, and on some Android versions the service comes back dead after the detach. So
+  `phone_power` attaches for one call only, always detaches, then checks the bridge (`a11y_state` plus a real
+  screen read) and repeats the attach/detach cycle until it is back; if it never is, the result says the user
+  must switch the service off and on. It never runs while `phone_agent` is working.
 - Every model call of these engines goes to the engine's local `/v1/free` endpoint (`connectors/automation_llm.py`):
   OpenAI-compatible, streaming or not, structured output on any model, an answer or a clear error in bounded time
   (a model that stalls or answers with nothing is replaced and cools down).

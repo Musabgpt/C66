@@ -35,7 +35,7 @@ import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = 2
+VERSION = 3
 
 os.environ.setdefault("ANONYMIZED_TELEMETRY", "false")      # Browser Use: nothing leaves the phone but the task
 
@@ -590,25 +590,163 @@ BROWSER = Browser()
 
 
 # ---------------------------------------------------------------------------
-# uiautomator2 optional power backend (only when an ADB device is reachable)
+# uiautomator2 power backend (only when an ADB device is reachable)
 # ---------------------------------------------------------------------------
 
+A11Y_NOTE = ("MusabAI's accessibility service did not come back after uiautomator2 detached. The user must switch "
+             "it off and on in Settings > Accessibility > NewAl Code: phone control before the phone tool, the task "
+             "memory or phone_agent can work again.")
+A11Y_IDLE_NOTE = ("MusabAI's accessibility service was not reading the screen before this call and still is not: the "
+                  "screen may be off or locked, or the service needs to be switched off and on in Settings > "
+                  "Accessibility > NewAl Code: phone control.")
+
+
 class U2:
+    """uiautomator2, attached only for the length of one call.
+
+    While its server is attached, Android unbinds every other accessibility service, MusabAI's own
+    phone bridge included: the phone tool, the task memory and the Mobilerun agent are blind until
+    it detaches. And on some Android versions the bridge then comes back dead (measured on
+    Android 9, whose handler for a dying UiAutomation is unsynchronized: about one detach in three),
+    while one more attach-and-detach revives it. So a call notes how the bridge was, attaches, acts,
+    detaches, checks that the bridge reads the screen again, and repeats the detach cycle until it
+    does. A bridge the user never switched on is left alone."""
+
+    REPAIRS = 4          # extra attach-and-detach cycles when a working bridge stays dead
+    SETTLE = 8.0         # seconds Android gets to rebind the bridge after a detach
+
     def __init__(self):
-        self.device = None
+        self.serial = None
+        self._lock = threading.Lock()
 
-    def connect(self, serial=None):
+    def _attach(self, serial=None):
         import uiautomator2 as u2
-        self.device = u2.connect(serial) if serial else u2.connect()
-        info = self.device.info
-        return {"ok": True, "serial": getattr(self.device, "serial", serial or ""),
-                "sdk": info.get("sdkInt"), "display": {
-                    "w": info.get("displayWidth"), "h": info.get("displayHeight")}}
+        serial = serial or self.serial
+        device = u2.connect(serial) if serial else u2.connect()
+        try:
+            device.info                   # starts the server now: an attach that fails, fails here
+        except Exception:
+            self._detach(device)          # never leave a half-started server holding the screen
+            raise
+        return device
 
-    def ensure(self):
-        if self.device is None:
-            self.connect()
-        return self.device
+    @staticmethod
+    def _detach(device):
+        try:
+            device.stop_uiautomator()
+        except Exception:
+            pass
+
+    def bridge(self):
+        """MusabAI's accessibility bridge right now: "ok" (it reads the screen), "broken" (switched on
+        but not reading), "off" (the user has not switched it on), or None when there is no app to ask.
+        a11y_state only looks (the screen actions would wait for the service and open its settings
+        page); the screen is then read once, because a dead service can still look connected."""
+        if not PHONE_KEY:
+            return None
+        try:
+            state = phone_call("a11y_state")
+        except PhoneError as e:
+            text = str(e).lower()
+            if "not reachable" in text:
+                return None
+            if "unknown" not in text:
+                return "broken"
+            state = None                  # an app from before a11y_state: read the screen
+        if state is not None:
+            if state.get("enabled") is False:
+                return "off"
+            if not (state.get("connected") and state.get("alive")):
+                return "broken"
+        try:
+            phone_call("screen_tree")
+        except PhoneError:
+            return "broken"
+        return "ok"
+
+    def bridge_back(self, wait=None):
+        """Wait for the bridge to read the screen again after a detach."""
+        end = time.monotonic() + (self.SETTLE if wait is None else wait)
+        while True:
+            if self.bridge() == "ok":
+                return True
+            if time.monotonic() >= end:
+                return False
+            time.sleep(1.0)
+
+    def _release(self, device, before):
+        """Detach, then bring back the bridge this call took away. Returns (back, repair cycles);
+        back is None when there was no bridge to bring back."""
+        self._detach(device)
+        if before not in ("ok", "broken"):
+            return None, 0
+        back = self.bridge_back()
+        cycles = 0
+        limit = self.REPAIRS if before == "ok" else 1     # one try for a bridge that was already down
+        while not back and cycles < limit:
+            cycles += 1
+            try:
+                self._detach(self._attach())
+            except Exception:
+                pass
+            back = self.bridge_back()
+        return back, cycles
+
+    def run(self, op, args):
+        """One uiautomator2 action, with the bridge restored afterwards."""
+        with self._lock:
+            before = self.bridge()
+            device = self._attach(args.get("serial"))
+            failure = None
+            try:
+                out = self._op(device, op, args)
+            except Exception as e:
+                failure, out = e, None
+            back, cycles = self._release(device, before)
+            note = "" if back in (None, True) else (A11Y_NOTE if before == "ok" else A11Y_IDLE_NOTE)
+            if failure is not None:
+                raise RuntimeError(_short(failure) + ("  " + note if note else ""))
+            if back is not None:
+                out["accessibility"] = "restored" if back else ("suspended" if before == "ok" else "unavailable")
+                if cycles:
+                    out["repair_cycles"] = cycles
+                if note:
+                    out["note"] = note
+            return out
+
+    def _op(self, d, op, args):
+        if op == "connect":
+            if args.get("serial"):
+                self.serial = args["serial"]
+            info = d.info
+            return {"ok": True, "serial": getattr(d, "serial", self.serial or ""), "sdk": info.get("sdkInt"),
+                    "display": {"w": info.get("displayWidth"), "h": info.get("displayHeight")}}
+        if op == "dump":
+            return {"ok": True, "xml": _clip(d.dump_hierarchy(), 20000)}
+        if op == "click_text":
+            target = d(text=args["text"])
+            if not target.exists:
+                target = d(textContains=args["text"])
+            if not target.exists:
+                return {"ok": False, "error": "nothing on the screen says %r" % args["text"]}
+            target.click()
+            return {"ok": True}
+        if op == "click_xy":
+            d.click(args["x"], args["y"])
+            return {"ok": True}
+        if op == "send_keys":
+            d.send_keys(args["text"], clear=bool(args.get("clear")))
+            return {"ok": True}
+        if op == "press":
+            d.press(args.get("key") or "back")
+            return {"ok": True}
+        if op == "app_start":
+            d.app_start(args["package"], stop=bool(args.get("stop")))
+            return {"ok": True}
+        if op == "app_current":
+            return {"ok": True, "current": d.app_current()}
+        raise ValueError("unknown uiautomator2 op %r: dump, click_text, click_xy, send_keys, press, app_start "
+                         "or app_current" % op)
 
     def adb(self, op, address="", code=""):
         import subprocess
@@ -623,31 +761,10 @@ class U2:
         if op == "adb_connect":
             p = subprocess.run(["adb", "connect", address], capture_output=True, text=True, timeout=60)
             ok = p.returncode == 0 and "connected" in (p.stdout + p.stderr).lower()
+            if ok:
+                self.serial = address
             return {"ok": ok, "output": (p.stdout + p.stderr).strip()[:500]}
         raise ValueError("unknown adb op: " + str(op))
-
-    def op(self, op, args):
-        d = self.ensure()
-        if op == "dump":
-            return {"ok": True, "xml": _clip(d.dump_hierarchy(), 12000)}
-        if op == "click_text":
-            d(text=args["text"]).click()
-            return {"ok": True}
-        if op == "click_xy":
-            d.click(args["x"], args["y"])
-            return {"ok": True}
-        if op == "send_keys":
-            d.send_keys(args["text"], clear=bool(args.get("clear")))
-            return {"ok": True}
-        if op == "press":
-            d.press(args.get("key", "back"))
-            return {"ok": True}
-        if op == "app_start":
-            d.app_start(args["package"], stop=bool(args.get("stop")))
-            return {"ok": True}
-        if op == "app_current":
-            return {"ok": True, "current": d.app_current()}
-        raise ValueError("unknown u2 op: " + str(op))
 
 
 U2BACKEND = U2()
@@ -753,9 +870,13 @@ def dispatch(path, data):
         op = data.get("op")
         if isinstance(op, str) and op.startswith("adb_"):
             return U2BACKEND.adb(op, data.get("address", ""), data.get("code", ""))
-        if op == "connect":
-            return U2BACKEND.connect(data.get("serial"))
-        return U2BACKEND.op(op, data)
+        # uiautomator2 takes the accessibility bridge away while it is attached: never under a phone agent
+        if not _PHONE_TASK.acquire(blocking=False):
+            return {"ok": False, "error": "a phone task is still running; wait for it to finish"}
+        try:
+            return U2BACKEND.run(op, data)
+        finally:
+            _PHONE_TASK.release()
     return {"ok": False, "error": "unknown path: %s" % path}
 
 
