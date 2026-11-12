@@ -10,7 +10,8 @@ earlier layers built up for a coding agent:
   model and fewer wrong choices. (The engine run from source, in Termux or in its own tests keeps the
   developer profile: the assistant is what the Android app's packaged engine is, lean.assistant().)
 * the page: a new single screen (assistant_ui/) instead of the developer interface;
-* confirmation: what sends in the user's name without their own tap is asked first.
+* it acts on its own (asking before sending is an opt-in switch) and it gets better on its own: it reviews
+  a turn that stumbled and keeps the lesson, keeps what the user corrects, and reads its lessons back.
 """
 import shutil
 
@@ -21,15 +22,15 @@ LEAN_ASSISTANT = '''
 # * the phone and its apps: phone, phone_sequence, phone_routine (tested procedures replayed in one call),
 #   phone_agent (a whole goal across screens) and screen_look;
 # * websites: browser and browser_agent in a background browser; web_search, web_fetch and weather;
-# * the user: my_info (their saved details for forms and bookings), reminders (scheduled_task_*), and their
-#   Gmail and Google Calendar when connected.
+# * the user: my_info (their saved details for forms and bookings), learn (what they correct or prefer),
+#   reminders (scheduled_task_*), and their Gmail and Google Calendar when connected.
 # The developer set above (files, shell, GitHub, code checks) is what the engine offers anywhere else: run from
 # source, in Termux, in its own tests. Settings "assistant": false brings it back in the app too.
 ASSISTANT = (
     "phone", "screen_look", "phone_routine", "phone_sequence", "phone_agent",
     "browser", "browser_agent",
     "web_search", "web_fetch", "weather",
-    "my_info",
+    "my_info", "learn",
     "scheduled_task_create", "scheduled_task_list", "scheduled_task_pause",
     "scheduled_task_resume", "scheduled_task_delete",
 )
@@ -147,7 +148,7 @@ def apply(src, package, replace):
 
     replace(package / "claude_parity.py",
             '"phone_agent", "phone_power", "browser", "browser_agent", "adb_connect", "github",',
-            '"phone_agent", "phone_power", "browser", "browser_agent", "adb_connect", "my_info", "github",')
+            '"phone_agent", "phone_power", "browser", "browser_agent", "adb_connect", "my_info", "learn", "github",')
 
     # 3) The page's API.
     server = package / "server.py"
@@ -174,6 +175,27 @@ def apply(src, package, replace):
         text = text.replace(allowed, allowed
                             + '        from . import assistant\n'
                               '        rules = assistant.rules(rules, self, name, args)\n', 1)
+        agent.write_text(text, encoding="utf-8")
+
+    # 4b) It gets better on its own: the lessons that fit come back under a request (the developer profile keeps
+    # them off, as before), and a turn that stumbled is reviewed when it ends.
+    text = agent.read_text(encoding="utf-8")
+    if "assistant.lessons_note(" not in text:
+        recall = '        learned, _ = ("", None) if lean.active() else tools.memory_context(self.memory, text, 4)\n'
+        ended = "            phone_fast.learn(self, error)\n"
+        _must(text, recall, "agent.py memory recall")
+        _must(text, ended, "agent.py end of turn")
+        text = text.replace(recall,
+                            "        if lean.active():\n"
+                            "            learned = \"\"\n"
+                            "            if lean.assistant():\n"
+                            "                from . import assistant\n"
+                            "                learned = assistant.lessons_note(self.memory, text)\n"
+                            "        else:\n"
+                            "            learned, _ = tools.memory_context(self.memory, text, 4)\n", 1)
+        text = text.replace(ended, ended
+                            + "            from . import assistant\n"
+                              "            assistant.after_turn(self, error)\n", 1)
         agent.write_text(text, encoding="utf-8")
 
     # 5) The model knows who it works for and whether to ask before sending; a small on-device model gets an
@@ -224,4 +246,4 @@ def apply(src, package, replace):
     # 8) Run the hermetic tests with the parity suite in CI.
     with open(package / "claude_parity_tests.py", "a", encoding="utf-8") as f:
         f.write("\nfrom .assistant_tests import AssistantInfoTests, AssistantRulesTests, AssistantConsentTests, "
-                "AssistantPageTests, AssistantProfileTests  # noqa: E402,F401 - parity CI\n")
+                "AssistantLearningTests, AssistantPageTests, AssistantProfileTests  # noqa: E402,F401 - parity CI\n")

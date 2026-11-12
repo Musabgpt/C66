@@ -38,6 +38,7 @@
       confirm: "اسألني قبل الإرسال والنشر", confirm_sub: "مطفأ: المساعد يرسل وينشر لوحده",
       bubble: "الزر العائم", bubble_sub: "المساعد فوق أي تطبيق",
       language: "اللغة", lang_auto: "لغة الهاتف", skills: "المهام التي أتقنها",
+      learned: "تعلّمت", lessons: "ما تعلّمته", lessons_sub: "دروس يحفظها من عمله ومن تصحيحاتك", no_lessons: "لم يتعلّم شيئاً بعد. يحفظ درساً بعد كل مهمة تعثّرت، وحين تصحّحه.",
       saved: "حُفظ", offline: "تعذّر الاتصال بالمساعد. أعد فتح التطبيق.",
       termux_wait: "يجري الإعداد في Termux… تابع الخطوات هناك.", termux_paste: "أول مرة فقط: في Termux الصق الأمر واضغط Enter.",
       shared: "أضفته إلى رسالتك: قل ما تريد أن أفعل به.",
@@ -46,7 +47,7 @@
       d_sms: "تجهيز رسالة", d_call: "تجهيز اتصال", d_where: "تحديد الموقع", d_phone: "العمل على الهاتف",
       d_steps: "تنفيذ خطوات على الهاتف", d_routine: "تنفيذ مهمة أتقنها", d_agent: "العمل داخل التطبيقات", d_look: "النظر إلى الشاشة",
       d_site: "فتح الموقع", d_read: "قراءة الصفحة", d_fill: "تعبئة حقل", d_web_agent: "العمل في الموقع",
-      d_search: "البحث في الويب", d_fetch: "قراءة صفحة", d_weather: "حالة الطقس", d_info: "مراجعة معلوماتك", d_save_info: "حفظ معلومة",
+      d_search: "البحث في الويب", d_fetch: "قراءة صفحة", d_weather: "حالة الطقس", d_info: "مراجعة معلوماتك", d_save_info: "حفظ معلومة", d_learn: "حفظ درس",
       d_remind: "حفظ التذكير", d_reminders: "التذكيرات", d_mail: "قراءة البريد", d_send_mail: "إرسال البريد", d_draft: "حفظ مسودة"
     },
     en: {
@@ -78,6 +79,7 @@
       confirm: "Ask me before sending or publishing", confirm_sub: "Off: the assistant sends and publishes on its own",
       bubble: "Floating button", bubble_sub: "The assistant over any app",
       language: "Language", lang_auto: "The phone's", skills: "Tasks I know by heart",
+      learned: "Learned", lessons: "What I have learned", lessons_sub: "Lessons it keeps from its own work and your corrections", no_lessons: "Nothing learned yet. It keeps a lesson after a task that stumbled, and when you correct it.",
       saved: "Saved", offline: "The assistant is not answering. Open the app again.",
       termux_wait: "Setting up in Termux… follow the steps there.", termux_paste: "First time only: paste the command in Termux and press Enter.",
       shared: "Added to your message: say what to do with it.",
@@ -86,7 +88,7 @@
       d_sms: "Preparing a message", d_call: "Preparing a call", d_where: "Finding the location", d_phone: "Working on the phone",
       d_steps: "Running steps on the phone", d_routine: "Running a task I know", d_agent: "Working inside the apps", d_look: "Looking at the screen",
       d_site: "Opening the site", d_read: "Reading the page", d_fill: "Filling a field", d_web_agent: "Working on the site",
-      d_search: "Searching the web", d_fetch: "Reading a page", d_weather: "Weather", d_info: "Checking your details", d_save_info: "Saving a detail",
+      d_search: "Searching the web", d_fetch: "Reading a page", d_weather: "Weather", d_info: "Checking your details", d_save_info: "Saving a detail", d_learn: "Keeping a lesson",
       d_remind: "Saving the reminder", d_reminders: "Reminders", d_mail: "Reading email", d_send_mail: "Sending the email", d_draft: "Saving a draft"
     }
   };
@@ -186,6 +188,7 @@
     };
     if (plain[name]) return t(plain[name]) + (name === "web_search" && args.query ? ": " + String(args.query).slice(0, 60) : "");
     if (name === "my_info") return t(args.action === "set" ? "d_save_info" : "d_info");
+    if (name === "learn") return t("d_learn");
     if (name.indexOf("scheduled_task_") === 0) return t("d_reminders");
     if (name.indexOf("gmail_") === 0) return t("d_mail");
     if (name.indexOf("calendar_") === 0) return t("d_cal");
@@ -305,6 +308,14 @@
         break;
       case "notice":
         if (ev.text) notice(ev.text, false);
+        break;
+      case "learned":                           // its own review of the turn kept a lesson
+        if (ev.text) {
+          var kept = el("div", "steps", t("learned") + ": " + ev.text);
+          kept.dir = "auto";
+          live().box.appendChild(kept);
+          scrollDown();
+        }
         break;
       case "error":
         notice(ev.message || "error", true);
@@ -629,6 +640,36 @@
     }).catch(function (e) { toast(e.message); });
   }
 
+  function openLessons() {
+    var body = openSheet(t("lessons"));
+    api("/api/assistant/lessons").then(function (d) {
+      var list = d.lessons || [];
+      if (!list.length) { body.appendChild(el("div", "empty-note", t("no_lessons"))); return; }
+      var card = el("div", "card");
+      list.forEach(function (item) {
+        var r = el("div", "history-item");
+        var text = el("div", "open");
+        var line = el("b", "", item.lesson);
+        line.dir = "auto";
+        line.style.whiteSpace = "normal";
+        text.appendChild(line);
+        if (item.about) text.appendChild(el("small", "", item.about));
+        var del = el("button", "icon");
+        del.type = "button";
+        del.setAttribute("aria-label", t("remove"));
+        del.innerHTML = icon("trash");
+        del.onclick = function () {
+          api("/api/assistant/lessons/forget", { id: item.id }).then(function () { r.remove(); })
+            .catch(function (e) { toast(e.message); });
+        };
+        r.appendChild(text);
+        r.appendChild(del);
+        card.appendChild(r);
+      });
+      body.appendChild(card);
+    }).catch(function (e) { body.appendChild(el("div", "empty-note", e.message)); });
+  }
+
   function openNotificationAccess() {
     api("/api/assistant/open", { page: "notification_access" }).catch(function (e) { toast(e.message); });
   }
@@ -707,6 +748,12 @@
     pick.onchange = function () { api("/api/settings", { lang: pick.value }).then(function () { location.reload(); }); };
     langRow.appendChild(pick);
     how.appendChild(langRow);
+    var learnt = row(t("lessons"), t("lessons_sub"));
+    var more = el("button", "btn small", "›");
+    more.type = "button";
+    more.onclick = openLessons;
+    learnt.appendChild(more);
+    how.appendChild(learnt);
     if (phone && phone.openTaskMemory) {
       var skills = row(t("skills"));
       var go = el("button", "btn small", "›");
