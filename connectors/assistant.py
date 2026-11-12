@@ -3,10 +3,10 @@
 * my_info: the user's own details (name, email, phone, city, passport...), kept in one file on the phone. The
   model reads them when a form or a booking asks, and saves a new one when the user gives it. Their values are
   not part of every request: only the names of what is saved are, so a detail leaves the phone when it is needed.
-* Confirm before sending: with it on (the default), a call that sends or publishes words the user has not seen
-  (a reply from a notification, an email, a post typed by a task-memory procedure) shows an approval first,
-  whatever the permission mode. Their own words, and a draft they already answered, go out without a second
-  question.
+* The assistant acts on its own: asked to write and publish, reply or send, it does, and says what went out.
+  "Ask before sending" is a switch for whoever wants it, off by default: with it on, a call that sends or
+  publishes words the user has not seen (a reply from a notification, an email, a post typed by a task-memory
+  procedure) shows an approval first, whatever the permission mode.
 * /api/assistant: the settings sheet of the page (profile, confirmation, what the phone allows).
 """
 import json
@@ -38,7 +38,7 @@ def _read():
         data = {}
     profile = data.get("profile")
     data["profile"] = {str(k): str(v) for k, v in profile.items()} if isinstance(profile, dict) else {}
-    data["confirm"] = data.get("confirm", True) is not False
+    data["confirm"] = data.get("confirm", False) is True          # off unless the user switched it on
     return data
 
 

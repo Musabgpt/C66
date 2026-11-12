@@ -52,7 +52,7 @@ class AssistantInfoTests(_Saved):
         self.assertEqual(json.loads(Path(assistant.PATH).read_text(encoding="utf-8"))["profile"], {"name": "مصعب"})
         Path(assistant.PATH).write_text("not json", encoding="utf-8")
         self.assertEqual(assistant.profile(), {})
-        self.assertTrue(assistant.confirm())
+        self.assertFalse(assistant.confirm())                      # the assistant acts on its own unless told otherwise
 
     def test_bad_input_is_refused_clearly(self):
         for action, args in (("set", {"field": "", "value": "x"}), ("set", {"field": "رقم", "value": "x"}),
@@ -72,7 +72,7 @@ class AssistantInfoTests(_Saved):
         self.assertEqual(context["saved_details"], ["city", "name", "passport"])
         self.assertEqual((context["user_name"], context["user_city"]), ("Musab Ali", "Riyadh"))
         self.assertNotIn("N1234567", json.dumps(context))
-        self.assertTrue(context["confirm_before_sending"])
+        self.assertFalse(context["confirm_before_sending"])
 
     def test_my_info_is_registered_and_never_asks(self):
         self.assertIn("my_info", tools.REGISTRY)
@@ -89,6 +89,7 @@ class AssistantRulesTests(_Saved):
         app = as_the_app()
         app.start()
         self.addCleanup(app.stop)
+        assistant.update({"confirm": True})                       # the user switched "ask before sending" on
 
     def decide(self, tool, kind, args):
         return permissions.decide("full-auto", tool, kind, args, "/", assistant.rules({})).action
@@ -145,6 +146,7 @@ class AssistantConsentTests(_Saved):
         app = as_the_app()
         app.start()
         self.addCleanup(app.stop)
+        assistant.update({"confirm": True})                       # the user switched "ask before sending" on
 
     def decide(self, agent, tool, args, kind="phone"):
         rules = assistant.rules({}, agent, tool, args)
@@ -192,10 +194,17 @@ class AssistantConsentTests(_Saved):
                            ("phone_agent", {"goal": POST}), ("phone_sequence", {"steps": []})):
             self.assertEqual(self.decide(agent, tool, args), permissions.ALLOW, tool)
 
-    def test_switched_off_nothing_is_asked(self):
-        assistant.update({"confirm": False})
-        agent = _Agent(user("Write a post and publish it"))
+    def test_by_default_the_assistant_publishes_on_its_own(self):
+        """The user asks so that they do not have to approve it themselves: nothing is asked unless they want it."""
+        os.remove(assistant.PATH)                                  # a fresh install: no choice saved
+        self.assertFalse(assistant.confirm())
+        agent = _Agent(user("Write a post about my bakery and publish it"))
         self.assertEqual(self.routine(agent, POST), permissions.ALLOW)
+        self.assertEqual(self.decide(agent, "phone", {"action": "notification_reply", "text": "on my way"}),
+                         permissions.ALLOW)
+        self.assertEqual(self.decide(agent, "gmail_send", {"to": "a@b.c", "text": "thanks"}, "connector_write"),
+                         permissions.ALLOW)
+        self.assertEqual(assistant.rules({"ask": ["x"]}, agent, "phone_routine", {"values": [POST]}), {"ask": ["x"]})
 
     def test_the_approval_shows_the_text_in_the_users_words(self):
         script = (UI / "assistant.js").read_text(encoding="utf-8")
@@ -224,13 +233,13 @@ class AssistantPageTests(_Saved):
 
     def test_the_settings_sheet_reads_and_saves(self):
         status, state = self.call("GET", "/api/assistant")
-        self.assertEqual((status, state["profile"], state["confirm"]), (200, {}, True))
+        self.assertEqual((status, state["profile"], state["confirm"]), (200, {}, False))
         self.assertEqual(state["fields"][:3], ["name", "email", "phone"])
-        status, state = self.call("POST", "/api/assistant", {"profile": {"name": " Musab ", "city": "Riyadh"}, "confirm": False})
-        self.assertEqual((state["profile"], state["confirm"]), ({"name": "Musab", "city": "Riyadh"}, False))
+        status, state = self.call("POST", "/api/assistant", {"profile": {"name": " Musab ", "city": "Riyadh"}, "confirm": True})
+        self.assertEqual((state["profile"], state["confirm"]), ({"name": "Musab", "city": "Riyadh"}, True))
         status, state = self.call("POST", "/api/assistant", {"profile": {"city": ""}})          # emptied: forgotten
         self.assertEqual(state["profile"], {"name": "Musab"})
-        self.assertFalse(state["confirm"])                                                      # untouched
+        self.assertTrue(state["confirm"])                                                       # untouched
 
     def test_bad_requests_get_a_reason(self):
         self.assertEqual(self.call("POST", "/api/assistant", {"profile": {"1bad": "x"}})[0], 400)
@@ -307,16 +316,19 @@ class AssistantProfileTests(unittest.TestCase):
         with as_the_app():
             text = agent_policy.lean_profile()
         self.assertTrue(text.startswith(agent_policy.MARKER + "\n\nYou are MusabAI, the user's personal assistant"))
-        for section in ("# Before anything leaves in the user's name", "# Email", "# Messages", "# Posts", "# Travel",
+        for section in ("# You act on your own", "# Email", "# Messages", "# Posts", "# Travel",
                         "# Forms", "# Everyday", "# Using the phone", "# Rules"):
             self.assertIn(section, text)
         for needed in ("notification_reply", "gmail_search", "phone_routine", "browser_agent", "my_info",
-                       "confirm_before_sending", "never pay", "Task memory tm:"):
+                       "confirm_before_sending", "never pay", "Task memory tm:", "# You act on your own",
+                       "publish it at once", 'do not ask "shall I send it?"'):
             self.assertIn(needed, text)
+        for gone_rule in ("show it and ask before publishing", "and ask (", "submit only when the user said to"):
+            self.assertNotIn(gone_rule, text)
         for gone in ("BusyBox", "GitHub", "bash", "code_check", "toolchain_status", "phone_power", "adb_connect",
                      "AGENTS.md", "npm", "Building software"):
             self.assertNotIn(gone, text, gone)
-        self.assertLess(len(text), 9000)                     # the earlier one was 14,000 characters
+        self.assertLess(len(text), 9500)                     # the earlier one was 14,000 characters
 
     def test_the_prompt_reaches_the_model_on_the_phone(self):
         env = {"os": "Android 14", "shell": "sh"}
