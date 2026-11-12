@@ -26,7 +26,7 @@ FIELDS = ("name", "email", "phone", "city", "country", "address", "birth_date", 
 MAX_FIELDS = 60
 MAX_VALUE = 500
 # Sent in the user's name with no tap of theirs: asked first while "confirm" is on.
-SENDS = ("Phone(notification_reply)", "gmail_send")
+SENDS = ("Phone(notification_reply)", "gmail_send", "gmail_reply")
 
 _lock = threading.Lock()
 _FIELD = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
@@ -144,8 +144,8 @@ def _content(tool, args):
     args = args or {}
     if tool == "phone" and args.get("action") == "notification_reply":
         return "Phone(notification_reply)", [args.get("text")]
-    if tool == "gmail_send":
-        return "gmail_send", [args.get("text")]
+    if tool in ("gmail_send", "gmail_reply"):
+        return tool, [args.get("text")]
     if tool == "phone_routine" and str(args.get("action") or "run") != "search":
         values = args.get("values")
         values = values if isinstance(values, (list, tuple)) else [values] if values else []
@@ -489,3 +489,8 @@ def t_learn(ctx, lesson, about=""):
 
 
 NAMES = ["my_info", "learn"]
+
+# The mail the assistant sends is a whole message, and an answer goes into the conversation it answers
+# (assistant_mail.py takes the place of the engine's gmail_send and adds gmail_reply).
+from . import assistant_mail  # noqa: E402 - after the tools above
+assistant_mail.install()

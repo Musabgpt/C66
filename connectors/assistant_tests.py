@@ -116,7 +116,7 @@ class AssistantRulesTests(_Saved):
         self.assertEqual(assistant.rules({"ask": ["Phone(call)"], "deny": ["x"]}), {"ask": ["Phone(call)"], "deny": ["x"]})
         assistant.update({"confirm": True})
         merged = assistant.rules({"ask": ["Phone(call)", "gmail_send"]})
-        self.assertEqual(merged["ask"], ["Phone(call)", "gmail_send", "Phone(notification_reply)"])
+        self.assertEqual(merged["ask"], ["Phone(call)", "gmail_send", "Phone(notification_reply)", "gmail_reply"])
 
 
 class _Agent:
@@ -532,7 +532,10 @@ class AssistantProfileTests(unittest.TestCase):
         for section in ("# You act on your own", "# Email", "# Messages", "# Posts", "# Travel",
                         "# Forms", "# Everyday", "# Using the phone", "# Rules"):
             self.assertIn(section, text)
-        self.assertIn("browser is your own browser. It lives inside the app, opens no window", text)
+        self.assertIn("browser is your own browser inside the app. It opens no window", text)
+        for needed in ("# Your browser", "op=fill fields=", "op=dismiss", "a captcha", "Never a marketing or newsletter box",
+                       "gmail_reply", "never a link alone", "do not extract again after a step"):
+            self.assertIn(needed, text)
         for needed in ("notification_reply", "gmail_search", "phone_routine", "browser_agent", "my_info",
                        "confirm_before_sending", "never pay", "Task memory tm:", "# You act on your own",
                        "publish it at once", 'do not ask "shall I send it?"'):
@@ -542,7 +545,7 @@ class AssistantProfileTests(unittest.TestCase):
         for gone in ("BusyBox", "GitHub", "bash", "code_check", "toolchain_status", "phone_power", "adb_connect",
                      "AGENTS.md", "npm", "Building software"):
             self.assertNotIn(gone, text, gone)
-        self.assertLess(len(text), 10200)                    # the earlier one was 14,000 characters
+        self.assertLess(len(text), 13500)                    # whole, but not a manual: every request carries it
 
     def test_the_prompt_reaches_the_model_on_the_phone(self):
         env = {"os": "Android 14", "shell": "sh"}

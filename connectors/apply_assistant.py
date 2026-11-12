@@ -119,7 +119,7 @@ def _must(text, anchor, what):
 
 
 def apply(src, package, replace):
-    for name in ("assistant.py", "assistant_tests.py"):
+    for name in ("assistant.py", "assistant_tests.py", "assistant_mail.py", "assistant_mail_tests.py"):
         shutil.copyfile(src / name, package / name)
 
     # 1) The prompt, whole, in its own file: the app's engine reads it, the developer profile stays for the rest.
@@ -249,3 +249,4 @@ def apply(src, package, replace):
     with open(package / "claude_parity_tests.py", "a", encoding="utf-8") as f:
         f.write("\nfrom .assistant_tests import AssistantInfoTests, AssistantRulesTests, AssistantConsentTests, "
                 "AssistantLearningTests, AssistantPageTests, AssistantProfileTests  # noqa: E402,F401 - parity CI\n")
+        f.write("from .assistant_mail_tests import AssistantMailTests  # noqa: E402,F401 - parity CI\n")

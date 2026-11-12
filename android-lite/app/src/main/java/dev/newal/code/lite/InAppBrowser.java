@@ -182,6 +182,11 @@ final class InAppBrowser {
                     if (frame != null) {
                         frame.close();
                     }
+                } catch (UnsupportedOperationException e) {
+                    // This phone draws its screens in another pixel format than the reader was told: every frame
+                    // would fail the same way. Nobody reads these frames (pictures are taken from the view), so
+                    // they are left alone; the screen simply stops being fed once its queue is full.
+                    reader.setOnImageAvailableListener(null, null);
                 } catch (RuntimeException ignored) {
                     // the screen was just closed
                 }
@@ -710,6 +715,9 @@ final class InAppBrowser {
      */
     private boolean arrive(CountDownLatch done) throws InterruptedException {
         long start = SystemClock.uptimeMillis();
+        if (shownAt > 0 && shownAt < start - 300) {
+            shownAt = 0;                               // that was the page before this one
+        }
         while (SystemClock.uptimeMillis() - start < LOAD_MS) {
             if (done.await(250, TimeUnit.MILLISECONDS)) {
                 return true;

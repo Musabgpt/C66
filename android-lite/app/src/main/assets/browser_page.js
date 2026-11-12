@@ -392,6 +392,12 @@ function tick(e, value) {
   return { ok: true, name: name(e), value: checked(e) ? 'checked' : 'not checked' };
 }
 
+/** Whether the cursor is in this element (in its own document or shadow tree). */
+function holds(e) {
+  var root = e.getRootNode ? e.getRootNode() : e.ownerDocument;
+  return (root && root.activeElement) === e || e.ownerDocument.activeElement === e;
+}
+
 /** A page that does not have the keyboard gives no focus events: editors wait for them, so they are given. */
 function wake(e) {
   var W = win(e);
@@ -445,7 +451,8 @@ function typed(a) {
     data.setData('text/plain', value);
     handled = !e.dispatchEvent(new W.ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true, composed: true }));
   } catch (_) { /* no clipboard events here */ }
-  if (!handled) {
+  var sel = W.getSelection(), inIt = !!(sel && sel.anchorNode && inside(sel.anchorNode, e));
+  if (!handled && inIt) {                       // editing commands go where the selection is: only into this editor
     var lines = value.split('\n');
     for (var i = 0; i < lines.length; i++) {
       if (i) doc.execCommand('insertParagraph');
@@ -488,10 +495,13 @@ function type(spec, value, submit) {
   show(face(e) || e);
   if (e.isContentEditable) return compose(e, value);
   wake(e);
-  try { e.select(); } catch (_) { /* a kind of field without a selection */ }
-  var doc = e.ownerDocument;
-  try { if (value === '') doc.execCommand('delete'); else doc.execCommand('insertText', false, value); } catch (_) { /* below */ }
-  if (!same(e.value, value)) setValue(e, value);
+  var picker = e.tagName === 'INPUT' && /^(date|time|datetime-local|month|week)$/i.test(e.getAttribute('type') || '');
+  if (!picker && holds(e)) {                    // an editing command goes to whatever has the cursor: it must be this field
+    try { e.select(); } catch (_) { /* a kind of field without a selection */ }
+    var doc = e.ownerDocument;
+    try { if (value === '') doc.execCommand('delete'); else doc.execCommand('insertText', false, value); } catch (_) { /* below */ }
+  }
+  if (picker ? e.value !== value : !same(e.value, value)) setValue(e, value);
   if (submit) enter(e);
   return { ok: true, name: name(e), value: (e.getAttribute('type') || '') === 'password' ? '(hidden)' : String(e.value || '').slice(0, 80) };
 }
