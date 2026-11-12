@@ -414,8 +414,9 @@ def route(handler, method, path, body=None):
             # The assistant's own browser, for the small live window in the conversation: its screen as a JPEG
             # (?shot=1), or where it is.
             from . import own_browser
-            picture, where = own_browser.shot() if own_browser.available() else (b"", {})
+            there = own_browser.available()
             if "shot=1" in str(getattr(handler, "path", "")):
+                picture = own_browser.shot()[0] if there else b""
                 handler.send_response(200 if picture else 204)
                 handler.send_header("Content-Type", "image/jpeg")
                 handler.send_header("Content-Length", str(len(picture)))
@@ -424,7 +425,7 @@ def route(handler, method, path, body=None):
                 if picture:
                     handler.wfile.write(picture)
             else:
-                handler._json(dict(where, ok=True, picture=bool(picture)))
+                handler._json(dict(own_browser.where() if there else {}, ok=True))
         elif method == "GET" and path == "/api/assistant/lessons":
             handler._json({"ok": True, "lessons": lessons()})
         elif method == "POST" and path == "/api/assistant/lessons/forget":

@@ -1,20 +1,29 @@
 package dev.newal.code.lite;
 
 import android.app.Activity;
+import android.app.Presentation;
 import android.content.Context;
 import android.content.MutableContextWrapper;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.PixelFormat;
+import android.hardware.display.DisplayManager;
+import android.hardware.display.VirtualDisplay;
+import android.media.Image;
+import android.media.ImageReader;
 import android.net.Uri;
 import android.net.http.SslError;
 import android.os.Build;
 import android.os.Handler;
+import android.os.HandlerThread;
 import android.os.Looper;
 import android.util.Base64;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.Window;
+import android.view.WindowManager;
 import android.webkit.GeolocationPermissions;
 import android.webkit.JsPromptResult;
 import android.webkit.JsResult;
@@ -22,6 +31,7 @@ import android.webkit.PermissionRequest;
 import android.webkit.RenderProcessGoneDetail;
 import android.webkit.SslErrorHandler;
 import android.webkit.ValueCallback;
+import android.webkit.WebBackForwardList;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
@@ -49,20 +59,23 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * The assistant's own browser: one WebView that belongs to the app. It opens no window: it sits behind the
- * conversation (or lives detached when the app is not on the screen) and the assistant drives it through the
- * phone action "web": open, read, click, type, key, back, scroll, shot. The conversation shows what it is doing
- * as a small live picture; the user can bring it to the front to sign in or pass a check themselves.
+ * The assistant's own browser: one WebView that belongs to the app. It opens no window on the phone's screen. It
+ * lives on a screen of its own that nobody sees (a private virtual display), so it is a real, lit, drawn browser
+ * whether the app is open, in the background or closed, and the assistant drives it through the phone action
+ * "web": open, read, click, type, key, back, scroll, shot. The conversation shows what it is doing as a small live
+ * picture; the user can bring it to the front to sign in or pass a check themselves.
  *
  * It is a browser for the open web only. It never loads this phone's own addresses or a private network (the
  * engine and the phone bridge listen on 127.0.0.1), it has no bridge into the app, and it asks for no camera,
  * microphone, location, file or download.
  */
 final class InAppBrowser {
-    private static final int WIDTH_DP = 412, HEIGHT_DP = 760;       // its screen while it has no window
+    private static final int WIDTH_DP = 412, HEIGHT_DP = 760;       // its own screen: a phone held upright
+    private static final long REST_MS = 3 * 60 * 1000;              // unused this long, the page is paused
     private static final int SHOT_WIDTH = 360;                      // the picture the conversation shows
     private static final int TEXT_MAX = 6000, ITEMS_MAX = 60;
     private static final long LOAD_MS = 25000;
+    private static final long MOVE_MS = 1200, SENT_MS = 4000;       // how long a page gets to start moving on
     private static InAppBrowser instance;
 
     private final Context app;
@@ -73,6 +86,14 @@ final class InAppBrowser {
     private FrameLayout host;                   // the activity's root while there is one
     private Activity activity;
     private LinearLayout panel;                 // the browser brought to the front for the user
+    private VirtualDisplay screen;              // its own screen: needs no activity and shows nothing on the phone's
+    private ImageReader frames;                 // where that screen is drawn (drained: nobody watches it)
+    private HandlerThread drain;
+    private Presentation stage;                 // the browser's window on that screen
+    private FrameLayout stageRoot;
+    private boolean noStage;                    // this phone refused the screen: the browser sits behind the page
+    private boolean resting;                    // paused after REST_MS without work
+    private final Runnable rest = this::rest;
     private volatile String url = "", title = "", problem = "";
     private volatile boolean loading;
     private volatile int loads;
@@ -91,7 +112,7 @@ final class InAppBrowser {
 
     // ------------------------------------------------------------------------------------- where it lives
 
-    /** The activity's root: the browser sits behind the page in it, so it is a real, drawn view without a window. */
+    /** The activity on the screen: the browser comes in front of its page when the user asks for it (show). */
     static void host(Activity a, FrameLayout root) {
         InAppBrowser b = get(a);
         b.activity = a;
@@ -106,17 +127,11 @@ final class InAppBrowser {
         if (b.activity != a) {
             return;
         }
-        b.hide();
-        if (b.web != null && b.web.getParent() instanceof ViewGroup) {
-            ((ViewGroup) b.web.getParent()).removeView(b.web);
-        }
-        if (b.context != null) {
-            b.context.setBaseContext(b.app);
-        }
-        b.activity = null;
+        b.activity = null;                             // before hide(): the browser must not go back into this activity
         b.host = null;
+        b.hide();
         if (b.web != null) {
-            b.lay();
+            b.place();
         }
     }
 
@@ -131,27 +146,148 @@ final class InAppBrowser {
         web.layout(0, 0, w, h);
     }
 
+    /**
+     * The browser's own screen and its window on it. A WebView draws and runs a page fully only in a window that
+     * is shown; an activity's window stops being shown when the user leaves the app. This one never does, and it
+     * is on no screen the user can see. False when the phone refuses it.
+     */
+    private boolean stage() {
+        if (noStage) {
+            return false;
+        }
+        if (stage != null && stage.isShowing() && screen != null) {
+            return true;
+        }
+        dropStage();
+        try {
+            int w = px(WIDTH_DP), h = px(HEIGHT_DP);
+            drain = new HandlerThread("musabai-browser-screen");
+            drain.start();
+            frames = ImageReader.newInstance(w, h, PixelFormat.RGBA_8888, 2);
+            frames.setOnImageAvailableListener(reader -> {
+                try {
+                    Image frame = reader.acquireLatestImage();
+                    if (frame != null) {
+                        frame.close();
+                    }
+                } catch (RuntimeException ignored) {
+                    // the screen was just closed
+                }
+            }, new Handler(drain.getLooper()));
+            DisplayManager displays = (DisplayManager) app.getSystemService(Context.DISPLAY_SERVICE);
+            screen = displays.createVirtualDisplay("musabai-browser", w, h,
+                    app.getResources().getDisplayMetrics().densityDpi, frames.getSurface(),
+                    DisplayManager.VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY);
+            Presentation window = new Presentation(app, screen.getDisplay());
+            Window inner = window.getWindow();
+            if (inner != null) {                       // it never takes the keyboard or a touch from the app
+                inner.addFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                        | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE);
+            }
+            FrameLayout root = new FrameLayout(window.getContext());
+            root.setBackgroundColor(Color.WHITE);
+            window.setContentView(root);
+            window.setCancelable(false);
+            window.show();
+            stage = window;
+            stageRoot = root;
+            return true;
+        } catch (RuntimeException | LinkageError e) {
+            dropStage();
+            noStage = true;
+            return false;
+        }
+    }
+
+    private void dropStage() {
+        if (web != null && stageRoot != null && web.getParent() == stageRoot) {
+            stageRoot.removeView(web);
+        }
+        try {
+            if (stage != null) {
+                stage.dismiss();
+            }
+        } catch (RuntimeException ignored) {
+            // its screen is already gone
+        }
+        if (screen != null) {
+            screen.release();
+        }
+        if (frames != null) {
+            frames.close();
+        }
+        if (drain != null) {
+            drain.quitSafely();
+        }
+        stage = null;
+        stageRoot = null;
+        screen = null;
+        frames = null;
+        drain = null;
+    }
+
+    /** Puts the browser where it lives: on its own screen; where the phone refuses one, behind the conversation. */
     private void place() {
         if (panel != null) {
             return;                                    // the user has it in front
         }
+        FrameLayout.LayoutParams fill = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT);
+        if (stage()) {
+            if (web.getParent() == stageRoot) {
+                return;
+            }
+            leave();
+            context.setBaseContext(stage.getContext());
+            stageRoot.addView(web, fill);
+        } else if (host != null) {
+            if (web.getParent() == host) {
+                return;
+            }
+            leave();
+            context.setBaseContext(activity);
+            host.addView(web, 0, fill);                // index 0: under the conversation
+        } else {
+            leave();
+            context.setBaseContext(app);
+            lay();
+        }
+    }
+
+    private void leave() {
         if (web.getParent() instanceof ViewGroup) {
             ((ViewGroup) web.getParent()).removeView(web);
         }
-        if (host != null) {
-            context.setBaseContext(activity);
-            host.addView(web, 0, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT));       // index 0: under the conversation
-        } else {
-            lay();
+    }
+
+    /** Before each use (main thread): the browser exists, is awake and is where it lives. */
+    private void ready() {
+        ensure();
+        main.removeCallbacks(rest);
+        main.postDelayed(rest, REST_MS);
+        if (resting) {
+            resting = false;
+            web.onResume();
         }
+        if (panel == null && (web.getParent() == null || (stage != null && !stage.isShowing()))) {
+            place();
+        }
+    }
+
+    /** Unused for a while: the page is paused, so a site left open does not keep the phone busy. */
+    private void rest() {
+        if (web == null || panel != null) {
+            return;
+        }
+        resting = true;
+        web.onPause();
     }
 
     private void ensure() {
         if (web != null) {
             return;
         }
-        context = new MutableContextWrapper(activity != null ? activity : app);
+        context = new MutableContextWrapper(app);
         web = new WebView(context);
         web.setBackgroundColor(Color.WHITE);
         WebSettings s = web.getSettings();
@@ -255,8 +391,18 @@ final class InAppBrowser {
             if (literalAllowed(request.getUrl())) {
                 return false;
             }
-            problem = "a link to " + request.getUrl().getScheme() + ": was not followed (only web pages open here)";
+            String scheme = String.valueOf(request.getUrl().getScheme()).toLowerCase(Locale.ROOT);
+            problem = scheme.equals("http") || scheme.equals("https")
+                    ? "a link to this phone or a private network was not followed: only the open web opens here"
+                    : "a link that opens another app (" + scheme + ":) was not followed";
             return true;
+        }
+
+        @Override
+        public void doUpdateVisitedHistory(WebView view, String u, boolean isReload) {
+            if (u != null && !u.isEmpty()) {
+                url = u;                               // also when a page changes its address without loading
+            }
         }
 
         @Override
@@ -400,8 +546,12 @@ final class InAppBrowser {
             + "e.scrollIntoView({block:'center'});try{e.focus();}catch(_){}"
             + "var r=e.getBoundingClientRect(),o={bubbles:true,cancelable:true,view:window,"
             + "clientX:r.left+r.width/2,clientY:r.top+r.height/2};"
+            + "var a=e.closest?e.closest('a[href]'):null,h=a?String(a.getAttribute('href')||''):'',"
+            + "t=String(e.getAttribute('type')||'').toLowerCase(),"
+            + "nav=(!!h&&h.charAt(0)!=='#'&&!/^javascript:/i.test(h))"
+            + "||(!!e.form&&(t==='submit'||t==='image'||(e.tagName==='BUTTON'&&t!=='button'&&t!=='reset')));"
             + "e.dispatchEvent(new MouseEvent('mousedown',o));e.dispatchEvent(new MouseEvent('mouseup',o));e.click();"
-            + "return JSON.stringify({ok:true,name:name(e)});})";
+            + "return JSON.stringify({ok:true,name:name(e),nav:nav});})";
     private static final String TYPE = "(function(spec,value,submit){" + COMMON
             + "var e=find(spec);if(!e)return JSON.stringify({ok:false,error:'nothing on the page matches'});"
             + "e.scrollIntoView({block:'center'});try{e.focus();}catch(_){}"
@@ -438,15 +588,18 @@ final class InAppBrowser {
             case "read":
                 return read();
             case "click":
-                return act(CLICK + "(" + spec(a) + ")", true);
+                return act(CLICK + "(" + spec(a) + ")", MOVE_MS);
             case "type":
                 return act(TYPE.replace("if(submit)enter(e);", ENTER + "if(submit)enter(e);") + "(" + spec(a) + ","
-                        + JSONObject.quote(a.optString("value")) + "," + a.optBoolean("submit") + ")", a.optBoolean("submit"));
+                        + JSONObject.quote(a.optString("value")) + "," + a.optBoolean("submit") + ")",
+                        a.optBoolean("submit") ? SENT_MS : 0);
             case "key":
-                return act(KEY, true);
+                return act(KEY, SENT_MS);
             case "back":
                 return back();
             case "scroll":
+                need();
+                wake();
                 js("window.scrollBy(0,Math.round(window.innerHeight*" + a.optDouble("pages", 1) + "));'ok'");
                 settle(350);
                 return state();
@@ -454,10 +607,12 @@ final class InAppBrowser {
                 return shot(a.optInt("width", SHOT_WIDTH));
             case "close":
                 Phone.onMain(() -> {
+                    hide();
+                    main.removeCallbacks(rest);
                     if (web != null) {
                         web.loadUrl("about:blank");
-                        web.setVisibility(View.INVISIBLE);
                     }
+                    dropStage();                       // its screen comes back with the next page
                     return null;
                 });
                 url = "";
@@ -504,8 +659,7 @@ final class InAppBrowser {
         CountDownLatch done = new CountDownLatch(1);
         finished = done;
         Phone.onMain(() -> {
-            ensure();
-            web.setVisibility(View.VISIBLE);
+            ready();
             web.loadUrl(go);
             return null;
         });
@@ -520,6 +674,7 @@ final class InAppBrowser {
 
     private JSONObject read() throws Exception {
         need();
+        wake();
         String raw = js(READ);
         JSONObject page = raw == null || raw.isEmpty() ? new JSONObject() : new JSONObject(raw);
         JSONObject o = state();
@@ -528,8 +683,9 @@ final class InAppBrowser {
     }
 
     /** A click or a typed text: done in the page, then the page is given time to move on if it does. */
-    private JSONObject act(String script, boolean mayNavigate) throws Exception {
+    private JSONObject act(String script, long moveMs) throws Exception {
         need();
+        wake();
         int before = loads;
         CountDownLatch done = new CountDownLatch(1);
         finished = done;
@@ -539,14 +695,13 @@ final class InAppBrowser {
             throw new IllegalStateException(result.optString("error", "the page did not answer"));
         }
         boolean moved = false;
-        if (mayNavigate) {
-            for (int i = 0; i < 15 && loads == before; i++) {
-                Thread.sleep(100);                     // a navigation starts within a moment, or not at all
-            }
-            moved = loads != before;
-            if (moved) {
-                done.await(LOAD_MS, TimeUnit.MILLISECONDS);
-            }
+        long wait = result.has("nav") ? (result.optBoolean("nav") ? SENT_MS : MOVE_MS) : moveMs;
+        for (long waited = 0; waited < wait && loads == before; waited += 100) {
+            Thread.sleep(100);                         // a page that moves on starts within a moment, or not at all
+        }
+        moved = loads != before;
+        if (moved) {
+            done.await(LOAD_MS, TimeUnit.MILLISECONDS);
         }
         settle(moved ? 600 : 400);
         JSONObject o = state();
@@ -565,11 +720,8 @@ final class InAppBrowser {
         CountDownLatch done = new CountDownLatch(1);
         finished = done;
         boolean went = Phone.onMain(() -> {
-            if (!web.canGoBack()) {
-                return false;
-            }
-            web.goBack();
-            return true;
+            ready();
+            return stepBack();
         });
         if (!went) {
             throw new IllegalStateException("there is no page to go back to");
@@ -579,11 +731,34 @@ final class InAppBrowser {
         return state();
     }
 
+    /**
+     * One page back. canGoBack() skips every page that was left without a touch, and the assistant never touches:
+     * the history list itself says whether there is a page behind this one.
+     */
+    private boolean stepBack() {
+        WebBackForwardList history = web.copyBackForwardList();
+        if (history.getCurrentIndex() <= 0) {
+            return false;
+        }
+        web.goBackOrForward(-1);
+        return true;
+    }
+
+    private void wake() throws Exception {
+        Phone.onMain(() -> {
+            ready();
+            return null;
+        });
+    }
+
     private JSONObject shot(int width) throws Exception {
         JSONObject o = state();
         byte[] jpeg = Phone.onMain(() -> {
             if (web == null || url.isEmpty()) {
                 return null;
+            }
+            if (!resting) {
+                ready();                               // a picture of a page at work keeps it awake
             }
             int w = web.getWidth(), h = web.getHeight();
             if (w <= 0 || h <= 0) {
@@ -655,10 +830,9 @@ final class InAppBrowser {
         if (b.host == null || b.panel != null) {
             return;
         }
-        b.ensure();
-        if (b.web.getParent() instanceof ViewGroup) {
-            ((ViewGroup) b.web.getParent()).removeView(b.web);
-        }
+        b.ready();
+        b.leave();
+        b.context.setBaseContext(a);
         LinearLayout box = new LinearLayout(a);
         box.setOrientation(LinearLayout.VERTICAL);
         box.setBackgroundColor(Color.WHITE);
@@ -687,13 +861,15 @@ final class InAppBrowser {
         b.panel = box;
     }
 
-    /** True when the browser was in front and went back behind the conversation. */
+    /** The phone's back key while the browser is in front: one page back, and from its first page, out of the way. */
     static boolean back(Activity a) {
         InAppBrowser b = get(a);
         if (b.panel == null) {
             return false;
         }
-        b.hide();
+        if (b.web == null || !b.stepBack()) {
+            b.hide();
+        }
         return true;
     }
 
@@ -711,6 +887,9 @@ final class InAppBrowser {
         }
         if (web != null) {
             place();
+        }
+        if (activity instanceof MainActivity) {
+            ((MainActivity) activity).browserReturned();
         }
     }
 }

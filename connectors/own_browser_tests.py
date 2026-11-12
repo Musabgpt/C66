@@ -102,6 +102,12 @@ class OwnBrowserTests(unittest.TestCase):
         self.answers["shot"] = phone.PhoneError("no answer")
         self.assertEqual(own_browser.shot(), (b"", {}))
 
+    def test_where_it_is_takes_no_picture(self):
+        self.assertEqual(own_browser.where(), {"url": "https://shop.example/", "title": "Shop", "loading": False})
+        self.assertEqual(self.ops(), ["state"])
+        self.answers["state"] = phone.PhoneError("no answer")
+        self.assertEqual(own_browser.where(), {})
+
     def test_the_browser_tool_uses_it_and_needs_no_termux(self):
         self.answers["read"] = {"page": PAGE}
         with mock.patch.object(AR, "_ensure_and_call", side_effect=AssertionError("Termux was asked")):

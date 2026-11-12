@@ -436,19 +436,21 @@ class AssistantPageTests(_Saved):
                 pass
 
         with mock.patch.object(own_browser, "available", lambda: True), \
+                mock.patch.object(own_browser, "where", lambda: {"url": "https://x/", "title": "X", "loading": False}), \
                 mock.patch.object(own_browser, "shot", lambda: (b"\xff\xd8jpeg", {"url": "https://x/", "title": "X"})):
             raw = Raw()
             self.assertTrue(assistant.route(raw, "GET", "/api/assistant/browser"))
             self.assertEqual((raw.status, raw.headers["Content-Type"], raw.body), (200, "image/jpeg", [b"\xff\xd8jpeg"]))
             self.assertEqual(raw.headers["Cache-Control"], "no-store")
             status, where = self.call("GET", "/api/assistant/browser")
-            self.assertEqual((status, where["url"], where["picture"]), (200, "https://x/", True))
+            self.assertEqual((status, where["url"], where["title"]), (200, "https://x/", "X"))   # where it is: no picture taken
         with mock.patch.object(own_browser, "available", lambda: False):
             raw = Raw()
             assistant.route(raw, "GET", "/api/assistant/browser")
             self.assertEqual((raw.status, raw.body), (204, []))                    # no browser, no picture
         script = (UI / "assistant.js").read_text(encoding="utf-8")
-        for needed in ('ev.name === "browser"', "/api/assistant/browser?shot=1", "phone.showBrowser()", "browserWatch(L)"):
+        for needed in ('ev.name === "browser"', "/api/assistant/browser?shot=1", "phone.showBrowser()", "browserWatch(L)",
+                       "window.onPhoneBrowser", "browserRenew(false)"):
             self.assertIn(needed, script)
         self.assertIn(".browser-screen img", (UI / "assistant.css").read_text(encoding="utf-8"))
 

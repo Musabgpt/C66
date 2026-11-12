@@ -48,7 +48,7 @@ public class MainActivity extends Activity {
         root.addView(web, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT));
         setContentView(root);
-        InAppBrowser.host(this, root);          // the assistant's own browser lives behind this page
+        InAppBrowser.host(this, root);          // the assistant's own browser comes in front of this page on request
         TaskMemoryDb.warm(this);                // the task memory, ready for the agent's first phone request
         boolean night = (getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK)
                 == Configuration.UI_MODE_NIGHT_YES;
@@ -433,6 +433,13 @@ public class MainActivity extends Activity {
                 web.evaluateJavascript("window.onPhoneVoice && window.onPhoneVoice("
                         + org.json.JSONObject.quote(said.get(0)) + ")", null);
             }
+        }
+    }
+
+    /** The user gave the assistant's browser back (Done, or the back key): the page shows what it is on now. */
+    void browserReturned() {
+        if (web != null) {
+            web.evaluateJavascript("window.onPhoneBrowser && window.onPhoneBrowser()", null);
         }
     }
 

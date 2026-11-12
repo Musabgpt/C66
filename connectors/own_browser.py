@@ -1,9 +1,10 @@
 """The assistant's own browser, inside the app.
 
-The Android app keeps one WebView of its own behind the conversation (InAppBrowser.java, phone action "web"). It
-opens no window, needs no Termux and no install: the browser tool drives it one step at a time, and the page
-shows a small live picture of it in the conversation (shot). An app from before it existed answers "unknown
-action": the tool then falls back to the Chromium in Termux as before.
+The Android app keeps one WebView of its own on a screen nobody sees (InAppBrowser.java, phone action "web"). It
+opens no window, needs no Termux and no install, and it works the same with the app open, in the background or
+closed: the browser tool drives it one step at a time, and the page shows a small live picture of it in the
+conversation (shot). An app from before it existed answers "unknown action": the tool then falls back to the
+Chromium in Termux as before.
 """
 import base64
 
@@ -108,6 +109,16 @@ def run(op, url="", target="", text="", submit=False, key=""):
     if out.get("note"):
         body += "\nNote: " + str(out["note"])
     return body, {"url": out.get("url") or "", "title": out.get("title") or "", "own_browser": True}
+
+
+def where():
+    """Where the browser is now, without a picture: {"url", "title", "loading"}; {} when it does not answer."""
+    from . import phone
+    try:
+        out = phone.call("web", timeout=10, op="state")
+    except phone.PhoneError:
+        return {}
+    return {"url": out.get("url") or "", "title": out.get("title") or "", "loading": bool(out.get("loading"))}
 
 
 def shot(width=360):

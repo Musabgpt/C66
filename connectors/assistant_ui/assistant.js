@@ -200,7 +200,7 @@
   // ------------------------------------------------------------------ the assistant's own browser, live
   // The browser works inside the app with no window of its own. While it works, the turn carries a small live
   // picture of it; a tap brings the real browser in front so the user can sign in or pass a check.
-  var browserTimer = 0;
+  var browserTimer = 0, browserLast = null;
   function browserCard(L) {
     if (L.browser) return L.browser;
     var card = el("div", "browser");
@@ -236,6 +236,7 @@
   }
   function browserWatch(L) {
     clearInterval(browserTimer);
+    browserLast = L;
     browserFrame(L);
     browserTimer = setInterval(function () {
       if (document.hidden) return;
@@ -247,7 +248,21 @@
     if (!L || !L.browser || !meta) return;
     var text = meta.title || meta.url || "";
     if (text) L.browser.where.textContent = text;
+    if (meta.url) L.browser.url = meta.url;
   }
+  // The conversation is looked at again (the app came back, or the user gave the browser back): the last
+  // window shows what the browser is on now. After a take-over the page may be another one; otherwise the
+  // picture is only renewed while the browser is still on the page this window was showing.
+  function browserRenew(moved) {
+    var L = browserLast;
+    if (!L || !L.browser || !document.body.contains(L.browser.card)) return;
+    api("/api/assistant/browser").then(function (now) {
+      if (!now || !now.url) return;
+      if (moved) browserAt(L, now);
+      if (moved || now.url === L.browser.url) browserFrame(L);
+    }).catch(function () {});
+  }
+  window.onPhoneBrowser = function () { browserRenew(true); };
 
   // ------------------------------------------------------------------ the conversation
   function showHome() { $("#home").hidden = $("#messages").children.length > 0; }
@@ -918,7 +933,11 @@
       if (!a) return;
       if (phone && phone.openUrl) { e.preventDefault(); phone.openUrl(a.href); }
     });
-    document.addEventListener("visibilitychange", function () { if (!document.hidden) renderSetup(); });
+    document.addEventListener("visibilitychange", function () {
+      if (document.hidden) return;
+      renderSetup();
+      browserRenew(false);
+    });
   }
 
   // ------------------------------------------------------------------ the app speaks to the page
