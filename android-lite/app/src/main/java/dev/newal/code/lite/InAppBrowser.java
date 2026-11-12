@@ -887,6 +887,8 @@ final class InAppBrowser {
         }
         if (web != null) {
             place();
+            main.removeCallbacks(rest);                // given back: it rests again when nobody uses it
+            main.postDelayed(rest, REST_MS);
         }
         if (activity instanceof MainActivity) {
             ((MainActivity) activity).browserReturned();
