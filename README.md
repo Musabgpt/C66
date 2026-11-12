@@ -56,10 +56,16 @@ and all on the free model pool (no key of the user's own):
 |------|--------|-----|
 | `phone_agent` | [Mobilerun](https://github.com/droidrun/mobilerun) | a whole phone goal across screens and apps: it reads the real screen and taps, types and swipes until done |
 | `phone_power`, `adb_connect` | [uiautomator2](https://github.com/openatx/uiautomator2) | low-level control over this phone's own wireless ADB (no computer), for what accessibility cannot reach |
-| `browser` | [Pydoll](https://github.com/autoscrape-labs/pydoll) | one step in a background Chromium: open, extract (text plus the names of fields, buttons and links), click, type, press, back |
+| `browser` | the app's own browser (`InAppBrowser.java`, `own_browser.py`); [Pydoll](https://github.com/autoscrape-labs/pydoll) on an app from before it | one step: open, extract (text plus numbered fields, buttons and links), click, type, press, scroll, back |
 | `browser_agent` | [Browser Use](https://github.com/browser-use/browser-use) | a whole web task in the same Chromium, returning the answer |
 
-- These libraries are Linux-only, so they run in the managed Debian environment in Termux
+- `browser` needs none of that in the app. The app keeps one WebView of its own in a window on a private virtual
+  display (`InAppBrowser.java`): nothing opens on the phone's screen, and it is a live, drawn browser whether the
+  app is open, in the background or closed. The conversation shows it as a small live window (a JPEG of its screen
+  from `GET /api/assistant/browser?shot=1`); a tap brings the real browser in front for a sign-in or a check, and
+  Done sends it back. It loads only http/https on the open web: this phone's own addresses (the engine's port
+  among them), private networks, files and other apps' links are refused for every request.
+- The libraries are Linux-only, so they run in the managed Debian environment in Termux
   (`connectors/automation_server.py`: one localhost server, token required). `connectors/automation_runtime.py`
   installs them on first use (a few minutes, once, with progress lines and Stop), starts the server, replaces one
   left by an older app, and exposes the tools.

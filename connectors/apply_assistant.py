@@ -21,7 +21,7 @@ LEAN_ASSISTANT = '''
 # The app as shipped is the user's personal assistant, and its tools are only an assistant's:
 # * the phone and its apps: phone, phone_sequence, phone_routine (tested procedures replayed in one call),
 #   phone_agent (a whole goal across screens) and screen_look;
-# * websites: browser and browser_agent in a background browser; web_search, web_fetch and weather;
+# * websites: browser (the app's own browser, inside the app) and browser_agent; web_search, web_fetch and weather;
 # * the user: my_info (their saved details for forms and bookings), learn (what they correct or prefer),
 #   reminders (scheduled_task_*), and their Gmail and Google Calendar when connected.
 # The developer set above (files, shell, GitHub, code checks) is what the engine offers anywhere else: run from
