@@ -173,7 +173,7 @@ def apply(src, package, replace):
         _must(text, allowed, "agent.py permission rules")
         text = text.replace(allowed, allowed
                             + '        from . import assistant\n'
-                              '        rules = assistant.rules(rules)\n', 1)
+                              '        rules = assistant.rules(rules, self, name, args)\n', 1)
         agent.write_text(text, encoding="utf-8")
 
     # 5) The model knows who it works for and whether to ask before sending; a small on-device model gets an
@@ -223,5 +223,5 @@ def apply(src, package, replace):
 
     # 8) Run the hermetic tests with the parity suite in CI.
     with open(package / "claude_parity_tests.py", "a", encoding="utf-8") as f:
-        f.write("\nfrom .assistant_tests import AssistantInfoTests, AssistantRulesTests, AssistantPageTests, "
-                "AssistantProfileTests  # noqa: E402,F401 - parity CI\n")
+        f.write("\nfrom .assistant_tests import AssistantInfoTests, AssistantRulesTests, AssistantConsentTests, "
+                "AssistantPageTests, AssistantProfileTests  # noqa: E402,F401 - parity CI\n")

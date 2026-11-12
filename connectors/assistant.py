@@ -3,8 +3,10 @@
 * my_info: the user's own details (name, email, phone, city, passport...), kept in one file on the phone. The
   model reads them when a form or a booking asks, and saves a new one when the user gives it. Their values are
   not part of every request: only the names of what is saved are, so a detail leaves the phone when it is needed.
-* Confirm before sending: with it on (the default), an action that sends in the user's name without their own tap
-  (a reply from a notification, an email) shows an approval first, whatever the permission mode.
+* Confirm before sending: with it on (the default), a call that sends or publishes words the user has not seen
+  (a reply from a notification, an email, a post typed by a task-memory procedure) shows an approval first,
+  whatever the permission mode. Their own words, and a draft they already answered, go out without a second
+  question.
 * /api/assistant: the settings sheet of the page (profile, confirmation, what the phone allows).
 """
 import json
@@ -125,12 +127,59 @@ def update(body):
     return state()
 
 
-def rules(current):
-    """The permission rules of a call, with the assistant's own: while "confirm" is on, what sends in the user's
-    name is asked first in every mode (ask rules are read before the mode)."""
+QUOTES = str.maketrans("", "", "\"'«»“”‘’`*_")
+ROUTINE_TEXT = 20        # a routine's value this long is content (a post, a message), not a name or a search word
+
+
+def _norm(text):
+    return " ".join(str(text or "").translate(QUOTES).lower().split())
+
+
+def _content(tool, args):
+    """(the permission rule of this call, the texts it would send or publish in the user's name)."""
+    args = args or {}
+    if tool == "phone" and args.get("action") == "notification_reply":
+        return "Phone(notification_reply)", [args.get("text")]
+    if tool == "gmail_send":
+        return "gmail_send", [args.get("text")]
+    if tool == "phone_routine" and str(args.get("action") or "run") != "search":
+        values = args.get("values")
+        values = values if isinstance(values, (list, tuple)) else [values] if values else []
+        return "phone_routine", [v for v in values if len(_norm(v)) >= ROUTINE_TEXT]
+    return "", []
+
+
+def _shown(agent):
+    """What has been in front of the user in this conversation: their own messages, and what the assistant said
+    before their latest one (they answered after reading it). What the assistant wrote in this turn is not: the
+    user has not had the chance to say no to it."""
+    events = list(getattr(getattr(agent, "session", None), "events", None) or [])
+    last = max((i for i, e in enumerate(events) if e.get("type") == "turn_start" and not e.get("sub")), default=-1)
+    parts = []
+    for i, e in enumerate(events):
+        if e.get("type") == "turn_start" and not e.get("sub"):
+            parts.append(str(e.get("text") or ""))
+        elif e.get("type") == "assistant" and i < last:
+            parts.append(str(e.get("text") or ""))
+    return _norm("\n".join(parts))
+
+
+def rules(current, agent=None, tool="", args=None):
+    """The permission rules of a call, with the assistant's own. While "confirm" is on, a call that sends or
+    publishes words the user has not seen (a reply from a notification, an email, a post or message typed by a
+    task-memory procedure) is asked first, whatever the permission mode: ask rules are read before the mode.
+    Words the user wrote themselves, or that the assistant showed them before their latest message, go out
+    without a second question. This does not rest on the model remembering to ask."""
     out = dict(current or {})
-    if active() and confirm():
-        out["ask"] = list(out.get("ask") or []) + [r for r in SENDS if r not in (out.get("ask") or [])]
+    if not (active() and confirm()):
+        return out
+    if agent is None:                      # no conversation to look at: what sends always asks
+        wanted = list(SENDS)
+    else:
+        rule, texts = _content(tool, args)
+        shown = _shown(agent) if texts else ""
+        wanted = [rule] if texts and not all(_norm(t) and _norm(t) in shown for t in texts) else []
+    out["ask"] = list(out.get("ask") or []) + [r for r in wanted if r not in (out.get("ask") or [])]
     return out
 
 

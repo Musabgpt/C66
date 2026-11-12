@@ -22,7 +22,7 @@
       remind: "التذكير", remind_sub: "مواعيد وتنبيهات", remind_text: "ذكّرني ",
       thinking: "يفكّر…", done_in: "تم في {s} ث", steps: "{n} خطوات", one_step: "خطوة واحدة", stopped: "أُوقف", failed: "لم يكتمل",
       yes: "نعم", no: "لا", send: "إرسال", allow: "سماح", deny: "رفض",
-      ap_reply: "أرسل هذا الرد؟", ap_email: "أرسل هذا البريد؟", ap_other: "هل تسمح بهذا؟", to: "إلى", subject: "الموضوع",
+      ap_reply: "أرسل هذا الرد؟", ap_email: "أرسل هذا البريد؟", ap_text: "أرسل أو أنشر هذا النص؟", ok: "موافق", ap_other: "هل تسمح بهذا؟", to: "إلى", subject: "الموضوع",
       history: "المحادثات", new_chat: "محادثة جديدة", no_history: "لا محادثات بعد.", untitled: "محادثة", remove: "حذف",
       settings: "الإعدادات", g_ready: "الجاهزية", g_me: "معلوماتي", g_accounts: "الحسابات", g_behaviour: "السلوك",
       on: "مفعّل", ready: "جاهزة", set_up: "إعداد", connect: "ربط", disconnect: "فصل", connected: "مربوط", unavailable: "غير متاح",
@@ -35,7 +35,7 @@
       f_name: "الاسم", f_email: "البريد الإلكتروني", f_phone: "رقم الهاتف", f_city: "المدينة", f_country: "الدولة",
       f_address: "العنوان", f_birth_date: "تاريخ الميلاد", f_nationality: "الجنسية", f_passport: "رقم الجواز",
       gmail: "Gmail", calendar: "تقويم Google", approve_browser: "وافق في المتصفح ثم ارجع إلى التطبيق.",
-      confirm: "اسألني قبل الإرسال", confirm_sub: "قبل إرسال رد أو بريد باسمك",
+      confirm: "اسألني قبل الإرسال والنشر", confirm_sub: "قبل إرسال أو نشر نص لم تكتبه أنت",
       bubble: "الزر العائم", bubble_sub: "المساعد فوق أي تطبيق",
       language: "اللغة", lang_auto: "لغة الهاتف", skills: "المهام التي أتقنها",
       saved: "حُفظ", offline: "تعذّر الاتصال بالمساعد. أعد فتح التطبيق.",
@@ -62,7 +62,7 @@
       remind: "Reminders", remind_sub: "Appointments and alerts", remind_text: "Remind me ",
       thinking: "Thinking…", done_in: "Done in {s} s", steps: "{n} steps", one_step: "1 step", stopped: "Stopped", failed: "Not completed",
       yes: "Yes", no: "No", send: "Send", allow: "Allow", deny: "Don't",
-      ap_reply: "Send this reply?", ap_email: "Send this email?", ap_other: "Allow this?", to: "To", subject: "Subject",
+      ap_reply: "Send this reply?", ap_email: "Send this email?", ap_text: "Send or publish this text?", ok: "OK", ap_other: "Allow this?", to: "To", subject: "Subject",
       history: "Conversations", new_chat: "New conversation", no_history: "No conversations yet.", untitled: "Conversation", remove: "Delete",
       settings: "Settings", g_ready: "Readiness", g_me: "My details", g_accounts: "Accounts", g_behaviour: "Behaviour",
       on: "On", ready: "Ready", set_up: "Set up", connect: "Connect", disconnect: "Disconnect", connected: "Connected", unavailable: "Unavailable",
@@ -75,7 +75,7 @@
       f_name: "Name", f_email: "Email", f_phone: "Phone", f_city: "City", f_country: "Country",
       f_address: "Address", f_birth_date: "Date of birth", f_nationality: "Nationality", f_passport: "Passport number",
       gmail: "Gmail", calendar: "Google Calendar", approve_browser: "Approve in the browser, then come back.",
-      confirm: "Ask me before sending", confirm_sub: "Before a reply or an email goes out in your name",
+      confirm: "Ask me before sending or publishing", confirm_sub: "Before words you did not write yourself go out",
       bubble: "Floating button", bubble_sub: "The assistant over any app",
       language: "Language", lang_auto: "The phone's", skills: "Tasks I know by heart",
       saved: "Saved", offline: "The assistant is not answering. Open the app again.",
@@ -356,6 +356,10 @@
     if (ev.tool === "phone" && a.action === "notification_reply") {
       q = t("ap_reply"); go = t("send");
       what = "«" + String(a.text || "") + "»" + (a.target ? "\n" + t("to") + ": " + a.target : "");
+    } else if (ev.tool === "phone_routine") {
+      var values = a.values instanceof Array ? a.values : a.values ? [a.values] : [];
+      q = t("ap_text"); go = t("ok");
+      what = values.map(function (v) { return "«" + String(v) + "»"; }).join("\n");
     } else if (ev.tool === "gmail_send") {
       q = t("ap_email"); go = t("send");
       what = t("to") + ": " + (a.to || "") + "\n" + t("subject") + ": " + (a.subject || "") + "\n\n" + (a.text || "");

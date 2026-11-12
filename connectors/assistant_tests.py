@@ -6,6 +6,7 @@ import re
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 from . import agent_policy, assistant, lean, permissions, tools
@@ -115,6 +116,91 @@ class AssistantRulesTests(_Saved):
         assistant.update({"confirm": True})
         merged = assistant.rules({"ask": ["Phone(call)", "gmail_send"]})
         self.assertEqual(merged["ask"], ["Phone(call)", "gmail_send", "Phone(notification_reply)"])
+
+
+class _Agent:
+    """An agent as the permission check sees it: the conversation's events so far."""
+
+    def __init__(self, *events):
+        self.session = SimpleNamespace(events=list(events))
+
+
+def user(text):
+    return {"type": "turn_start", "text": text}
+
+
+def said(text):
+    return {"type": "assistant", "text": text, "final": True}
+
+
+POST = "Exciting news! My new coffee shop is now open. Come by for great coffee and a warm welcome."
+
+
+class AssistantConsentTests(_Saved):
+    """Words the user has not seen do not go out in their name without a question, whatever the model does.
+    (On a real phone the free model was asked to write a post and publish it: it published at once.)"""
+
+    def setUp(self):
+        super().setUp()
+        app = as_the_app()
+        app.start()
+        self.addCleanup(app.stop)
+
+    def decide(self, agent, tool, args, kind="phone"):
+        rules = assistant.rules({}, agent, tool, args)
+        return permissions.decide("full-auto", tool, kind, args, "/", rules).action
+
+    def routine(self, agent, *values, **more):
+        return self.decide(agent, "phone_routine", dict({"id": "tm:cur.facebook.post", "values": list(values)}, **more))
+
+    def test_a_post_the_model_wrote_is_asked_first(self):
+        agent = _Agent(user("Write a short post about the opening of my new coffee shop and publish it on Facebook"))
+        self.assertEqual(self.routine(agent, POST), permissions.ASK)
+        # saying it in the same turn is not showing it: the user has had no chance to say no
+        agent.session.events.append({"type": "assistant", "text": "I will post: " + POST, "final": False})
+        self.assertEqual(self.routine(agent, POST), permissions.ASK)
+
+    def test_the_users_own_words_go_out_at_once(self):
+        agent = _Agent(user('انشر على فيسبوك منشوراً يقول: "صباح الخير يا أصدقاء، افتتحنا اليوم"'))
+        self.assertEqual(self.routine(agent, "صباح الخير يا أصدقاء، افتتحنا اليوم"), permissions.ALLOW)
+        self.assertEqual(self.routine(agent, "  صباح  الخير يا أصدقاء، «افتتحنا اليوم» "), permissions.ALLOW)   # same words
+        reply = _Agent(user("رد على أحمد: أنا في الطريق"))
+        self.assertEqual(self.decide(reply, "phone", {"action": "notification_reply", "text": "أنا في الطريق"}),
+                         permissions.ALLOW)
+        self.assertEqual(self.decide(reply, "phone", {"action": "notification_reply", "text": "أنا قادم الآن"}),
+                         permissions.ASK)
+
+    def test_a_draft_the_user_already_answered_is_not_asked_twice(self):
+        agent = _Agent(user("اكتب منشوراً عن افتتاح المقهى"), said("هذا المنشور:\n\n" + POST + "\n\nأنشره؟"),
+                       user("نعم"))
+        self.assertEqual(self.routine(agent, POST), permissions.ALLOW)
+        changed = POST.replace("great coffee", "free coffee")
+        self.assertEqual(self.routine(agent, changed), permissions.ASK)          # not the text they said yes to
+
+    def test_an_email_is_asked_unless_its_text_was_seen(self):
+        agent = _Agent(user("أرسل بريداً لسارة أشكرها على العرض"))
+        mail = {"to": "sara@example.com", "subject": "شكراً", "text": "شكراً جزيلاً على العرض الرائع يا سارة."}
+        self.assertEqual(self.decide(agent, "gmail_send", mail, "connector_write"), permissions.ASK)
+        agent = _Agent(user("اكتب بريد شكر لسارة"), said("مسودة: شكراً جزيلاً على العرض الرائع يا سارة. أرسله؟"), user("أرسله"))
+        self.assertEqual(self.decide(agent, "gmail_send", mail, "connector_write"), permissions.ALLOW)
+
+    def test_names_searches_and_other_tools_are_not_content(self):
+        agent = _Agent(user("ابحث في يوتيوب عن أغاني فيروز وافتح واتساب أحمد"))
+        self.assertEqual(self.routine(agent, "Fairuz songs"), permissions.ALLOW)             # a search word, a name
+        self.assertEqual(self.routine(agent, POST, action="search"), permissions.ALLOW)      # looking a procedure up
+        for tool, args in (("phone", {"action": "tap", "item": 2}), ("phone", {"action": "type", "text": POST}),
+                           ("phone_agent", {"goal": POST}), ("phone_sequence", {"steps": []})):
+            self.assertEqual(self.decide(agent, tool, args), permissions.ALLOW, tool)
+
+    def test_switched_off_nothing_is_asked(self):
+        assistant.update({"confirm": False})
+        agent = _Agent(user("Write a post and publish it"))
+        self.assertEqual(self.routine(agent, POST), permissions.ALLOW)
+
+    def test_the_approval_shows_the_text_in_the_users_words(self):
+        script = (UI / "assistant.js").read_text(encoding="utf-8")
+        self.assertIn('ev.tool === "phone_routine"', script)
+        self.assertIn('t("ap_text")', script)
 
 
 class _Handler:
