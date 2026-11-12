@@ -18,12 +18,16 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.util.Base64;
 import android.view.Gravity;
+import android.view.InputDevice;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
+import android.webkit.CookieManager;
 import android.webkit.GeolocationPermissions;
 import android.webkit.JsPromptResult;
 import android.webkit.JsResult;
@@ -44,12 +48,16 @@ import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 import org.json.JSONTokener;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.InputStream;
 import java.net.InetAddress;
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -73,9 +81,9 @@ final class InAppBrowser {
     private static final int WIDTH_DP = 412, HEIGHT_DP = 760;       // its own screen: a phone held upright
     private static final long REST_MS = 3 * 60 * 1000;              // unused this long, the page is paused
     private static final int SHOT_WIDTH = 360;                      // the picture the conversation shows
-    private static final int TEXT_MAX = 6000, ITEMS_MAX = 60;
     private static final long LOAD_MS = 25000;
     private static final long MOVE_MS = 1200, SENT_MS = 4000;       // how long a page gets to start moving on
+    private static final long USABLE_MS = 7000;                     // a page shown this long is used though it still loads
     private static InAppBrowser instance;
 
     private final Context app;
@@ -98,6 +106,10 @@ final class InAppBrowser {
     private volatile boolean loading;
     private volatile int loads;
     private volatile CountDownLatch finished = new CountDownLatch(0);
+    private volatile long shownAt;              // when the page now loading first showed something
+    private volatile File upload;               // the file the page is about to be given
+    private volatile String uploaded = "";
+    private volatile String pageScript;         // assets/browser_page.js
 
     private InAppBrowser(Context c) {
         app = c.getApplicationContext();
@@ -272,6 +284,19 @@ final class InAppBrowser {
         if (panel == null && (web.getParent() == null || (stage != null && !stage.isShowing()))) {
             place();
         }
+        if (panel == null) {
+            // Its window never takes the keyboard, and a page that is not "focused" gives its fields no focus
+            // events: composers and menus wait for them. The view is told it has the focus; the phone's keyboard
+            // does not follow (it serves only the window the user is in).
+            try {
+                if (!web.isFocused()) {
+                    web.requestFocus();
+                }
+                web.onWindowFocusChanged(true);
+            } catch (RuntimeException ignored) {
+                // a WebView that will not be told: the page script gives the focus events itself
+            }
+        }
     }
 
     /** Unused for a while: the page is paused, so a site left open does not keep the phone busy. */
@@ -306,6 +331,16 @@ final class InAppBrowser {
         if (Build.VERSION.SDK_INT >= 26) {
             s.setSafeBrowsingEnabled(true);
         }
+        // Sites treat an embedded view as a lesser browser (some refuse it). This is a browser: it says so.
+        String ua = s.getUserAgentString();
+        if (ua != null) {
+            s.setUserAgentString(ua.replace("; wv)", ")").replaceAll(" Version/\\d+\\.\\d+", ""));
+        }
+        CookieManager cookies = CookieManager.getInstance();
+        cookies.setAcceptCookie(true);
+        cookies.setAcceptThirdPartyCookies(web, true); // sign-ins and checks that live in a frame need them
+        web.setFocusable(true);
+        web.setFocusableInTouchMode(true);
         web.setWebViewClient(new Client());
         web.setWebChromeClient(new Chrome());
         web.setDownloadListener((u, agent, disposition, mime, length) -> problem = "a download was refused");
@@ -415,8 +450,14 @@ final class InAppBrowser {
         }
 
         @Override
+        public void onPageCommitVisible(WebView view, String u) {
+            shownAt = SystemClock.uptimeMillis();
+        }
+
+        @Override
         public void onPageStarted(WebView view, String u, Bitmap icon) {
             loading = true;
+            shownAt = 0;
             loads++;
             url = u == null ? "" : u;
         }
@@ -498,81 +539,53 @@ final class InAppBrowser {
 
         @Override
         public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> callback, FileChooserParams params) {
+            File chosen = upload;
+            upload = null;
+            if (chosen != null && chosen.isFile()) {
+                callback.onReceiveValue(new Uri[]{Uri.fromFile(chosen)});
+                uploaded = chosen.getName();
+                return true;
+            }
             callback.onReceiveValue(null);
-            problem = "the page asked for a file: the user has to choose it (bring the browser to the front)";
+            problem = "the page asked for a file: give one with op=upload, or the user chooses it (browser in front)";
             return true;
         }
     }
 
     // ------------------------------------------------------------------------------------- the page's side
 
-    /** Finds an element by the number read() gave it, else by its name: exact first, then a part of it. */
-    private static final String FIND = "function find(spec){"
-            + "if(spec.index){var e=document.querySelector('[data-musab=\"'+spec.index+'\"]');if(e)return e;}"
-            + "var want=String(spec.text||'').replace(/\\s+/g,' ').trim().toLowerCase();if(!want)return null;"
-            + "var all=document.querySelectorAll(SEL),part=null;"
-            + "for(var i=0;i<all.length;i++){var e=all[i];if(!vis(e))continue;var n=name(e).toLowerCase();"
-            + "if(n===want)return e;if(!part&&n&&n.indexOf(want)>=0)part=e;}return part;}";
-    private static final String COMMON = "var SEL='a[href],button,input,textarea,select,[role=button],[role=link],"
-            + "[role=tab],[role=menuitem],[role=checkbox],[role=option],[onclick],[contenteditable=true]';"
-            + "function vis(e){var r=e.getBoundingClientRect();if(r.width<2||r.height<2)return false;"
-            + "var s=getComputedStyle(e);return s.visibility!=='hidden'&&s.display!=='none';}"
-            + "function label(e){var t=e.getAttribute('aria-label')||'';"
-            + "if(!t&&e.id){try{var l=document.querySelector('label[for=\"'+CSS.escape(e.id)+'\"]');if(l)t=l.innerText;}catch(_){}}"
-            + "if(!t&&e.closest){var p=e.closest('label');if(p)t=p.innerText;}"
-            + "return (t||e.getAttribute('placeholder')||e.getAttribute('name')||e.getAttribute('title')||'');}"
-            + "function kind(e){var tag=e.tagName.toLowerCase(),type=(e.getAttribute('type')||'').toLowerCase();"
-            + "if(tag==='a')return 'link';if(tag==='select')return 'select';"
-            + "if(tag==='input'&&(type==='submit'||type==='button'||type==='reset'||type==='image'))return 'button';"
-            + "if(tag==='input'&&(type==='checkbox'||type==='radio'))return type;"
-            + "if(tag==='input'||tag==='textarea'||e.isContentEditable)return 'field';return 'button';}"
-            + "function name(e){var k=kind(e),t=(k==='field'||k==='select'||k==='checkbox'||k==='radio')?label(e)"
-            + ":((e.innerText||e.value||'').trim()||label(e));return String(t).replace(/\\s+/g,' ').trim().slice(0,80);}"
-            + FIND;
-    private static final String READ = "(function(){" + COMMON
-            + "var old=document.querySelectorAll('[data-musab]');for(var i=0;i<old.length;i++)old[i].removeAttribute('data-musab');"
-            + "var items=[],n=0,all=document.querySelectorAll(SEL);"
-            + "for(var i=0;i<all.length&&items.length<" + ITEMS_MAX + ";i++){var e=all[i];"
-            + "if((e.getAttribute('type')||'').toLowerCase()==='hidden'||!vis(e))continue;"
-            + "var k=kind(e),t=name(e);if(!t&&k!=='field')continue;n++;e.setAttribute('data-musab',String(n));"
-            + "var it={i:n,kind:k,name:t};if((k==='field'||k==='select')&&e.value)it.value=String(e.value).slice(0,60);"
-            + "if((k==='checkbox'||k==='radio')&&e.checked)it.value='checked';"
-            + "if(k==='link'&&e.href)it.href=String(e.href).slice(0,160);items.push(it);}"
-            + "var text=(document.body?document.body.innerText:'').replace(/\\n{3,}/g,'\\n\\n').slice(0," + TEXT_MAX + ");"
-            + "return JSON.stringify({url:location.href,title:document.title,text:text,items:items,"
-            + "y:Math.round(window.scrollY),height:Math.round(document.documentElement.scrollHeight),view:window.innerHeight});})()";
-    private static final String CLICK = "(function(spec){" + COMMON
-            + "var e=find(spec);if(!e)return JSON.stringify({ok:false,error:'nothing on the page matches'});"
-            + "e.scrollIntoView({block:'center'});try{e.focus();}catch(_){}"
-            + "var r=e.getBoundingClientRect(),o={bubbles:true,cancelable:true,view:window,"
-            + "clientX:r.left+r.width/2,clientY:r.top+r.height/2};"
-            + "var a=e.closest?e.closest('a[href]'):null,h=a?String(a.getAttribute('href')||''):'',"
-            + "t=String(e.getAttribute('type')||'').toLowerCase(),"
-            + "nav=(!!h&&h.charAt(0)!=='#'&&!/^javascript:/i.test(h))"
-            + "||(!!e.form&&(t==='submit'||t==='image'||(e.tagName==='BUTTON'&&t!=='button'&&t!=='reset')));"
-            + "e.dispatchEvent(new MouseEvent('mousedown',o));e.dispatchEvent(new MouseEvent('mouseup',o));e.click();"
-            + "return JSON.stringify({ok:true,name:name(e),nav:nav});})";
-    private static final String TYPE = "(function(spec,value,submit){" + COMMON
-            + "var e=find(spec);if(!e)return JSON.stringify({ok:false,error:'nothing on the page matches'});"
-            + "e.scrollIntoView({block:'center'});try{e.focus();}catch(_){}"
-            + "if(e.tagName==='SELECT'){var hit=-1,w=value.trim().toLowerCase();"
-            + "for(var i=0;i<e.options.length;i++){var o=e.options[i];"
-            + "if(o.text.trim().toLowerCase()===w||o.value===value){hit=i;break;}if(hit<0&&o.text.toLowerCase().indexOf(w)>=0)hit=i;}"
-            + "if(hit<0)return JSON.stringify({ok:false,error:'the list has no such choice'});e.selectedIndex=hit;}"
-            + "else if(e.isContentEditable){e.textContent=value;}"
-            + "else{var proto=e.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype,"
-            + "d=Object.getOwnPropertyDescriptor(proto,'value');if(d&&d.set)d.set.call(e,value);else e.value=value;}"
-            + "e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}));"
-            + "if(submit)enter(e);"
-            + "return JSON.stringify({ok:true,name:name(e),value:String(e.value||e.textContent||'').slice(0,80)});})";
-    private static final String ENTER = "function enter(e){var k={bubbles:true,cancelable:true,key:'Enter',code:'Enter',"
-            + "keyCode:13,which:13};var go=e.dispatchEvent(new KeyboardEvent('keydown',k));"
-            + "e.dispatchEvent(new KeyboardEvent('keypress',k));e.dispatchEvent(new KeyboardEvent('keyup',k));"
-            + "var f=e.form;if(go&&f){var b=f.querySelector('[type=submit],button:not([type=button]):not([type=reset])');"
-            + "if(f.requestSubmit)f.requestSubmit();else if(b)b.click();else f.submit();}}";
-    private static final String KEY = "(function(){" + ENTER
-            + "var e=document.activeElement;if(!e||e===document.body)return JSON.stringify({ok:false,"
-            + "error:'no field has the cursor: type into one first'});enter(e);return JSON.stringify({ok:true});})()";
+    /** One op of the page script (assets/browser_page.js) as a script to run in the page. */
+    private String page(String op, JSONObject args) throws Exception {
+        String lib = pageScript;
+        if (lib == null) {
+            try (InputStream in = app.getAssets().open("browser_page.js")) {
+                ByteArrayOutputStream out = new ByteArrayOutputStream();
+                byte[] buf = new byte[8192];
+                for (int n; (n = in.read(buf)) > 0; ) {
+                    out.write(buf, 0, n);
+                }
+                lib = new String(out.toByteArray(), StandardCharsets.UTF_8);
+            }
+            pageScript = lib;
+        }
+        String json = (args == null ? "{}" : args.toString()).replace("\u2028", "\\u2028").replace("\u2029", "\\u2029");
+        return "(function(){" + lib + "\nreturn JSON.stringify(run(" + JSONObject.quote(op) + "," + json + "));})()";
+    }
+
+    /** Runs one op of the page script and gives its answer; {} from a page that is leaving. */
+    private JSONObject ask(String op, JSONObject args) throws Exception {
+        String raw = js(page(op, args), 15000);
+        return raw == null || raw.isEmpty() ? new JSONObject() : new JSONObject(raw);
+    }
+
+    /** The same, for an answer that must be ok. */
+    private JSONObject must(String op, JSONObject args) throws Exception {
+        JSONObject r = ask(op, args);
+        if (!r.optBoolean("ok")) {
+            throw new IllegalStateException(r.optString("error", "the page did not answer"));
+        }
+        return r;
+    }
 
     // ------------------------------------------------------------------------------------- actions
 
@@ -588,21 +601,25 @@ final class InAppBrowser {
             case "read":
                 return read();
             case "click":
-                return act(CLICK + "(" + spec(a) + ")", MOVE_MS);
+                return click(a);
             case "type":
-                return act(TYPE.replace("if(submit)enter(e);", ENTER + "if(submit)enter(e);") + "(" + spec(a) + ","
-                        + JSONObject.quote(a.optString("value")) + "," + a.optBoolean("submit") + ")",
-                        a.optBoolean("submit") ? SENT_MS : 0);
+                return type(a);
+            case "fill":
+                return fill(a);
             case "key":
-                return act(KEY, SENT_MS);
+                return key(a.optString("key", "Enter"));
             case "back":
                 return back();
             case "scroll":
-                need();
-                wake();
-                js("window.scrollBy(0,Math.round(window.innerHeight*" + a.optDouble("pages", 1) + "));'ok'");
-                settle(350);
-                return state();
+                return scroll(a);
+            case "find":
+                return find(a.optString("text"));
+            case "wait":
+                return waitFor(a.optString("text"), a.optInt("seconds", 8));
+            case "dismiss":
+                return dismiss();
+            case "upload":
+                return upload(a);
             case "shot":
                 return shot(a.optInt("width", SHOT_WIDTH));
             case "close":
@@ -619,16 +636,27 @@ final class InAppBrowser {
                 title = "";
                 return state();
             default:
-                throw new IllegalArgumentException("unknown web op " + op
-                        + ": open, read, click, type, key, back, scroll, shot or close");
+                throw new IllegalArgumentException("unknown web op " + op + ": open, read, click, type, fill, key, "
+                        + "back, scroll, find, wait, dismiss, upload, shot or close");
         }
     }
 
-    private static String spec(JSONObject a) throws Exception {
+    /** What an action names: the number read gave an element, or its name. */
+    private static JSONObject spec(JSONObject a) throws Exception {
         JSONObject s = new JSONObject();
         s.put("index", a.optInt("index", 0));
         s.put("text", a.optString("text"));
-        return s.toString();
+        return s;
+    }
+
+    private static JSONObject named(String target) throws Exception {
+        String t = target == null ? "" : target.trim();
+        String digits = t.replace("[", "").replace("]", "").replace("#", "").trim();
+        JSONObject s = new JSONObject();
+        boolean number = !digits.isEmpty() && digits.length() <= 3 && digits.chars().allMatch(Character::isDigit);
+        s.put("index", number ? Integer.parseInt(digits) : 0);
+        s.put("text", number ? "" : t);
+        return s;
     }
 
     private JSONObject state() throws Exception {
@@ -663,55 +691,327 @@ final class InAppBrowser {
             web.loadUrl(go);
             return null;
         });
-        boolean loaded = done.await(LOAD_MS, TimeUnit.MILLISECONDS);
-        settle(600);
+        boolean loaded = arrive(done);
+        settle(500);
+        String accepted = clearWay();
         JSONObject o = state();
         if (!loaded) {
-            o.put("note", "the page is still loading after " + LOAD_MS / 1000 + " s: read it, or wait and read again");
+            o.put("note", "the page is still loading: it can be read and used; wait and read again for what is missing");
+        }
+        if (!accepted.isEmpty()) {
+            o.put("accepted", accepted);
         }
         return o;
+    }
+
+    /**
+     * Waits for the page that is loading: until it has finished, or has been showing for a while. Heavy sites never
+     * quite finish (ads, trackers), and what the user sees is there long before.
+     */
+    private boolean arrive(CountDownLatch done) throws InterruptedException {
+        long start = SystemClock.uptimeMillis();
+        while (SystemClock.uptimeMillis() - start < LOAD_MS) {
+            if (done.await(250, TimeUnit.MILLISECONDS)) {
+                return true;
+            }
+            long shown = shownAt;
+            if (shown > 0 && SystemClock.uptimeMillis() - shown > USABLE_MS) {
+                return false;
+            }
+        }
+        return false;
+    }
+
+    /** A page that has just opened: its cookie notice is accepted, so nothing covers it. "" when it had none. */
+    private String clearWay() {
+        try {
+            String accepted = ask("clear", null).optString("accepted");
+            if (!accepted.isEmpty()) {
+                settle(450);
+            }
+            return accepted;
+        } catch (Exception e) {
+            return "";
+        }
     }
 
     private JSONObject read() throws Exception {
         need();
         wake();
-        String raw = js(READ);
-        JSONObject page = raw == null || raw.isEmpty() ? new JSONObject() : new JSONObject(raw);
+        JSONObject page = ask("read", null);
         JSONObject o = state();
         o.put("page", page);
         return o;
     }
 
-    /** A click or a typed text: done in the page, then the page is given time to move on if it does. */
-    private JSONObject act(String script, long moveMs) throws Exception {
+    /**
+     * A click is a real touch on the browser where the element is, so the page gets what a finger gives it (mobile
+     * sites answer touches, not clicks made by a script, and only a real touch may open a file chooser or a new
+     * page). Where the touch cannot be given or does not arrive, the page clicks the element itself.
+     */
+    private JSONObject click(JSONObject a) throws Exception {
         need();
         wake();
+        JSONObject target = spec(a);
+        must("point", target);
+        settle(120);                                   // the page settles where it scrolled to, then it is measured
+        JSONObject where = must("point", target);
+        String was = url;
         int before = loads;
         CountDownLatch done = new CountDownLatch(1);
         finished = done;
-        String raw = js(script);
-        JSONObject result = raw == null || raw.isEmpty() ? new JSONObject() : new JSONObject(raw);
-        if (!result.optBoolean("ok")) {
-            throw new IllegalStateException(result.optString("error", "the page did not answer"));
+        boolean touched = where.has("fx") && touch(where.optDouble("fx"), where.optDouble("fy"), before);
+        if (!touched) {
+            JSONObject pressed = ask("press", target);
+            if (pressed.has("ok") && !pressed.optBoolean("ok")) {
+                throw new IllegalStateException(pressed.optString("error", "the page did not answer"));
+            }
         }
-        boolean moved = false;
-        long wait = result.has("nav") ? (result.optBoolean("nav") ? SENT_MS : MOVE_MS) : moveMs;
-        for (long waited = 0; waited < wait && loads == before; waited += 100) {
+        JSONObject o = after(where, was, before, done, where.optBoolean("nav") ? SENT_MS : MOVE_MS);
+        o.put("touch", touched);
+        return o;
+    }
+
+    /** A real touch at this share of the browser's width and height. True when the page felt it. */
+    private boolean touch(double fx, double fy, int before) throws Exception {
+        boolean sent = Phone.onMain(() -> {
+            if (web == null || web.getWidth() <= 0 || web.getHeight() <= 0) {
+                return false;
+            }
+            final float x = (float) (fx * web.getWidth()), y = (float) (fy * web.getHeight());
+            final long down = SystemClock.uptimeMillis();
+            finger(MotionEvent.ACTION_DOWN, down, down, x, y);
+            main.postDelayed(() -> finger(MotionEvent.ACTION_UP, down, SystemClock.uptimeMillis(), x, y), 60);
+            return true;
+        });
+        if (!sent) {
+            return false;
+        }
+        settle(280);
+        if (loads != before) {
+            return true;                               // the page is already moving on
+        }
+        String raw = js(page("touched", null), 2500);
+        if (raw == null || raw.isEmpty()) {
+            return true;                               // no answer: the page left
+        }
+        return new JSONObject(raw).optBoolean("tapped", true);
+    }
+
+    private void finger(int action, long down, long now, float x, float y) {
+        if (web == null) {
+            return;
+        }
+        MotionEvent.PointerProperties p = new MotionEvent.PointerProperties();
+        p.id = 0;
+        p.toolType = MotionEvent.TOOL_TYPE_FINGER;
+        MotionEvent.PointerCoords c = new MotionEvent.PointerCoords();
+        c.x = x;
+        c.y = y;
+        c.pressure = 1f;
+        c.size = 1f;
+        MotionEvent e = MotionEvent.obtain(down, now, action, 1, new MotionEvent.PointerProperties[]{p},
+                new MotionEvent.PointerCoords[]{c}, 0, 0, 1f, 1f, 0, 0, InputDevice.SOURCE_TOUCHSCREEN, 0);
+        try {
+            web.dispatchTouchEvent(e);
+        } catch (RuntimeException ignored) {
+            // the page clicks instead (touch() sees that nothing arrived)
+        } finally {
+            e.recycle();
+        }
+    }
+
+    /** After an action: the page is given time to move on if it does, and where it is now is said. */
+    private JSONObject after(JSONObject result, String was, int before, CountDownLatch done, long waitMs) throws Exception {
+        for (long waited = 0; waited < waitMs && loads == before && url.equals(was); waited += 100) {
             Thread.sleep(100);                         // a page that moves on starts within a moment, or not at all
         }
-        moved = loads != before;
-        if (moved) {
-            done.await(LOAD_MS, TimeUnit.MILLISECONDS);
+        boolean loadsAnew = loads != before, moved = loadsAnew || !url.equals(was);
+        String accepted = "";
+        if (loadsAnew) {
+            arrive(done);
         }
-        settle(moved ? 600 : 400);
+        if (moved) {
+            settle(500);
+            accepted = clearWay();
+        } else {
+            settle(waitMs > 0 ? 300 : 100);
+        }
         JSONObject o = state();
         o.put("moved", moved);
-        if (result.has("name")) {
-            o.put("element", result.optString("name"));
+        for (String k : new String[]{"name", "value", "covered", "by"}) {
+            if (result.has(k)) {
+                o.put(k.equals("name") ? "element" : k, result.optString(k));
+            }
         }
-        if (result.has("value")) {
-            o.put("value", result.optString("value"));
+        if (!accepted.isEmpty()) {
+            o.put("accepted", accepted);
         }
+        return o;
+    }
+
+    private JSONObject type(JSONObject a) throws Exception {
+        need();
+        wake();
+        boolean submit = a.optBoolean("submit");
+        String was = url;
+        int before = loads;
+        CountDownLatch done = new CountDownLatch(1);
+        finished = done;
+        JSONObject r = typeInto(spec(a), a.optString("value"), submit);
+        return after(r, was, before, done, submit ? SENT_MS : 0);
+    }
+
+    /** Text into one field. A rich editor takes it in three moments (browser_page.js: compose, typed, check). */
+    private JSONObject typeInto(JSONObject target, String value, boolean submit) throws Exception {
+        JSONObject args = new JSONObject(target.toString());
+        args.put("value", value);
+        args.put("submit", submit);
+        JSONObject r = must("type", args);
+        if ("selected".equals(r.optString("wait"))) {
+            settle(90);                                // the editor follows the selection a beat later
+            must("typed", new JSONObject());
+            settle(180);                               // and shows what it took a beat after that
+            r = must("typed", new JSONObject().put("check", true));
+            if (submit) {
+                ask("key", new JSONObject().put("key", "Enter"));
+            }
+        }
+        return r;
+    }
+
+    /** Several fields in one action: [{target, value}]. Each answers for itself; one that fails does not stop the rest. */
+    private JSONObject fill(JSONObject a) throws Exception {
+        need();
+        wake();
+        JSONArray fields = a.optJSONArray("fields");
+        if (fields == null || fields.length() == 0) {
+            throw new IllegalArgumentException("fill needs fields: [{\"target\": a name or number, \"value\": the text}]");
+        }
+        JSONArray lines = new JSONArray();
+        int failed = 0;
+        for (int i = 0; i < fields.length() && i < 40; i++) {
+            JSONObject f = fields.optJSONObject(i);
+            if (f == null) {
+                continue;
+            }
+            JSONObject line = new JSONObject().put("target", f.optString("target"));
+            try {
+                JSONObject r = typeInto(named(f.optString("target")), f.optString("value"), false);
+                line.put("ok", true).put("name", r.optString("name")).put("value", r.optString("value"));
+            } catch (IllegalStateException e) {
+                failed++;
+                line.put("ok", false).put("error", String.valueOf(e.getMessage()));
+            }
+            lines.put(line);
+        }
+        JSONObject o = state();
+        o.put("fields", lines);
+        o.put("failed", failed);
+        return o;
+    }
+
+    private JSONObject key(String which) throws Exception {
+        need();
+        wake();
+        String was = url;
+        int before = loads;
+        CountDownLatch done = new CountDownLatch(1);
+        finished = done;
+        JSONObject r = must("key", new JSONObject().put("key", which));
+        return after(r, was, before, done, r.optBoolean("nav") ? SENT_MS : MOVE_MS);
+    }
+
+    private JSONObject scroll(JSONObject a) throws Exception {
+        need();
+        wake();
+        Object to = a.has("to") ? a.opt("to") : (Object) a.optDouble("pages", 1);
+        JSONObject r = ask("scroll", new JSONObject().put("to", String.valueOf(to)));
+        settle(350);                                   // pages load more as they are scrolled
+        JSONObject o = state();
+        for (String k : new String[]{"y", "height", "view"}) {
+            if (r.has(k)) {
+                o.put(k, r.optInt(k));
+            }
+        }
+        return o;
+    }
+
+    private JSONObject find(String text) throws Exception {
+        need();
+        wake();
+        JSONObject r = must("find", new JSONObject().put("text", text));
+        JSONObject o = state();
+        o.put("count", r.optInt("count"));
+        o.put("places", r.optJSONArray("places"));
+        return o;
+    }
+
+    /** Waits until the page says the text (or, with no text, until it has stopped loading), up to the seconds given. */
+    private JSONObject waitFor(String text, int seconds) throws Exception {
+        need();
+        wake();
+        long end = SystemClock.uptimeMillis() + Math.max(1, Math.min(seconds, 20)) * 1000L;
+        boolean there = false;
+        while (SystemClock.uptimeMillis() < end) {
+            if (text == null || text.trim().isEmpty()) {
+                there = !loading;
+            } else {
+                there = ask("has", new JSONObject().put("text", text)).optBoolean("there");
+            }
+            if (there) {
+                break;
+            }
+            Thread.sleep(400);
+        }
+        JSONObject o = state();
+        o.put("there", there);
+        return o;
+    }
+
+    private JSONObject dismiss() throws Exception {
+        need();
+        wake();
+        JSONObject r = must("dismiss", null);
+        settle(450);
+        JSONObject o = state();
+        o.put("did", r.optString("did"));
+        return o;
+    }
+
+    /** Gives a file to a file field: the field is touched, and the chooser the page then opens is answered with it. */
+    private JSONObject upload(JSONObject a) throws Exception {
+        need();
+        wake();
+        File file = new File(a.optString("path"));
+        if (!file.isFile() || !file.canRead()) {
+            throw new IllegalArgumentException("upload needs the path of a file that exists");
+        }
+        JSONObject target = spec(a);
+        must("point", target);
+        settle(120);
+        JSONObject where = must("point", target);
+        if (!where.has("fx")) {
+            throw new IllegalStateException("the file field cannot be touched where it is: scroll to it first");
+        }
+        uploaded = "";
+        upload = file;
+        try {
+            touch(where.optDouble("fx"), where.optDouble("fy"), loads);
+            for (int i = 0; i < 20 && uploaded.isEmpty(); i++) {
+                Thread.sleep(100);
+            }
+        } finally {
+            upload = null;
+        }
+        if (uploaded.isEmpty()) {
+            throw new IllegalStateException("the page did not ask for a file there: it is not a file field, or it opens "
+                    + "one only after another click");
+        }
+        settle(400);
+        JSONObject o = state();
+        o.put("element", where.optString("name"));
+        o.put("value", uploaded);
         return o;
     }
 
@@ -726,14 +1026,14 @@ final class InAppBrowser {
         if (!went) {
             throw new IllegalStateException("there is no page to go back to");
         }
-        done.await(LOAD_MS, TimeUnit.MILLISECONDS);
+        arrive(done);
         settle(500);
         return state();
     }
 
     /**
-     * One page back. canGoBack() skips every page that was left without a touch, and the assistant never touches:
-     * the history list itself says whether there is a page behind this one.
+     * One page back. canGoBack() skips every page that was left without a touch, and the assistant's touches are
+     * not always counted: the history list itself says whether there is a page behind this one.
      */
     private boolean stepBack() {
         WebBackForwardList history = web.copyBackForwardList();
@@ -797,8 +1097,12 @@ final class InAppBrowser {
         Thread.sleep(ms);
     }
 
-    /** Runs a script in the page and returns its string result (the scripts answer with JSON text). */
-    private String js(String script) throws Exception {
+    /**
+     * Runs a script in the page and returns its string result (the scripts answer with JSON text); "" when the
+     * page gave none. A page that does not answer within the time: an error for a long wait, "" for a short one
+     * (a page that is leaving never answers).
+     */
+    private String js(String script, long timeoutMs) throws Exception {
         CountDownLatch done = new CountDownLatch(1);
         AtomicReference<String> out = new AtomicReference<>("");
         main.post(() -> {
@@ -816,8 +1120,11 @@ final class InAppBrowser {
                 done.countDown();
             });
         });
-        if (!done.await(15, TimeUnit.SECONDS)) {
-            throw new IllegalStateException("the page did not answer in time");
+        if (!done.await(timeoutMs, TimeUnit.MILLISECONDS)) {
+            if (timeoutMs >= 10000) {
+                throw new IllegalStateException("the page did not answer in time");
+            }
+            return "";
         }
         return out.get();
     }

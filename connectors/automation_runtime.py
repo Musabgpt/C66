@@ -380,25 +380,46 @@ def t_phone_power(ctx, op, text="", x=0, y=0, key="", package="", clear=False):
 
 
 @tools.tool("browser",
-            "Your own browser, one step at a time. In the app it lives inside the app itself: no window opens, "
-            "nothing is installed, and the user sees a small live picture of it in the conversation. op=open(url), "
-            "extract (the page's text and its fields, buttons and links, numbered), click(target), type(target, "
-            "text; submit=true presses Enter after), press (Enter), scroll (one screen down) or back. A target is "
-            "an element's number or its name from extract. It keeps its own sign-ins; a site that needs the "
-            "user's login, a code or a captcha: say so, the user can bring the browser to the front and do it.",
-            {"op": tools._s("open, extract, click, type, press, scroll or back"),
-             "url": tools._s("url for open"),
-             "target": tools._s("for click/type: the element's number or visible name from extract"),
-             "text": tools._s("text for type"),
-             "submit": tools._b("type: press Enter afterwards (search boxes, forms)"),
-             "key": tools._s("press: Enter")}, ["op"], "net")
-def t_browser(ctx, op, url="", target="", text="", submit=False, key=""):
+            "Your own browser, one step at a time. It lives inside the app: no window opens, nothing is installed, "
+            "and the user sees it as a small live picture in the conversation. Every step answers with the page as "
+            "it is after the step (its text, then its fields, buttons and links, numbered), so do not extract "
+            "again after a step. op=open(url); extract; click(target); type(target, text; submit=true presses "
+            "Enter); fill(fields={\"field name or number\": \"value\", ...}; target=the button to click after, "
+            "optional) fills a whole form in one step; press(key: Enter, Escape, Tab, ArrowDown...); scroll "
+            "(text: down, up, top, bottom); find(text) jumps to words on a long page; wait(text, seconds) for a "
+            "page that is still working; dismiss closes a dialog that covers the page; upload(target, path) gives "
+            "a file of this conversation to a file field; back. A target is an element's number or its name. "
+            "Clicks are real touches and text is typed like a keyboard, cookie notices are accepted for you. It "
+            "keeps its own sign-ins; a login, a code or a captcha: say so, the user taps the picture, does it and "
+            "presses Done.",
+            {"op": tools._s("open, extract, click, type, fill, press, scroll, find, wait, dismiss, upload or back"),
+             "url": tools._s("open: the address"),
+             "target": tools._s("click/type/upload: the element's number or visible name; fill: the button to click after"),
+             "text": tools._s("type: the text; find/wait: the words; scroll: down, up, top or bottom"),
+             "submit": tools._b("type: press Enter afterwards (search boxes, one-field forms)"),
+             "key": tools._s("press: Enter, Escape, Tab, ArrowDown, ArrowUp, Backspace"),
+             "fields": {"type": "object", "description": "fill: {\"field name or number\": \"value\"}; a list is "
+                        "chosen by its option's text, a checkbox by yes/no"},
+             "seconds": tools._i("wait: how long at most (default 8, up to 20)"),
+             "path": tools._s("upload: the file's path in this conversation")}, ["op"], "net")
+def t_browser(ctx, op, url="", target="", text="", submit=False, key="", fields=None, seconds=0, path=""):
     from . import own_browser
     if own_browser.available():
         # The app's own browser: no Termux, no install, and the conversation shows it live.
-        return own_browser.run(op, url=url, target=target, text=text, submit=submit, key=key)
-    if str(op) == "scroll":
+        return own_browser.run(op, url=url, target=target, text=text, submit=submit, key=key, fields=fields,
+                               seconds=seconds, path=path, ctx=ctx)
+    op = str(op or "").strip().lower()
+    if op == "scroll":
         op, key = "press", "PageDown"
+    if op == "fill":                               # the older browser: one field after another
+        lines = []
+        for f in own_browser.fields_of(fields):
+            out = _ensure_and_call(ctx, "/browser", {"op": "type", "target": f["target"], "text": f["value"]}, timeout=120)
+            lines.append("%s = %s" % (f["target"], f["value"]) if isinstance(out, dict) and out.get("ok", True)
+                         else "%s: not filled" % f["target"])
+        return "Filled:\n" + "\n".join(lines), {}
+    if op in ("find", "wait", "dismiss", "upload"):
+        raise tools.ToolError("op=%s works in the app's own browser; here use extract, click and type" % op)
     body = {"op": str(op), "url": url, "target": target, "text": text, "submit": bool(submit), "key": key}
     out = _ensure_and_call(ctx, "/browser", body, timeout=120)
     meta = {k: v for k, v in out.items() if k not in ("text", "elements", "png_base64")} if isinstance(out, dict) else {}

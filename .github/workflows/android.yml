@@ -130,6 +130,7 @@ jobs:
           python3 connectors/apply.py .
           python3 -m compileall -q desktop/newal_code connectors
           node --check desktop/newal_code/ui/assistant.js
+          node --check android-lite/app/src/main/assets/browser_page.js
           node --check desktop/newal_code/ui/app.js
           node --check desktop/newal_code/ui/connectors.js
           node --check desktop/newal_code/ui/workspace.js

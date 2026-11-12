@@ -47,7 +47,8 @@
       d_notifs: "قراءة الإشعارات", d_reply: "إرسال الرد", d_contacts: "البحث في جهات الاتصال", d_cal: "التقويم",
       d_sms: "تجهيز رسالة", d_call: "تجهيز اتصال", d_where: "تحديد الموقع", d_phone: "العمل على الهاتف",
       d_steps: "تنفيذ خطوات على الهاتف", d_routine: "تنفيذ مهمة أتقنها", d_agent: "العمل داخل التطبيقات", d_look: "النظر إلى الشاشة",
-      d_site: "فتح الموقع", d_read: "قراءة الصفحة", d_fill: "تعبئة حقل", d_web_agent: "العمل في الموقع",
+      d_site: "فتح الموقع", d_read: "قراءة الصفحة", d_fill: "تعبئة حقل", d_form: "تعبئة النموذج", d_find: "البحث في الصفحة",
+      d_wait: "انتظار الصفحة", d_dismiss: "إغلاق ما يحجب الصفحة", d_upload: "رفع ملف", d_back: "رجوع", d_key: "ضغط مفتاح", d_web_agent: "العمل في الموقع",
       d_search: "البحث في الويب", d_fetch: "قراءة صفحة", d_weather: "حالة الطقس", d_info: "مراجعة معلوماتك", d_save_info: "حفظ معلومة", d_learn: "حفظ درس",
       d_remind: "حفظ التذكير", d_reminders: "التذكيرات", d_mail: "قراءة البريد", d_send_mail: "إرسال البريد", d_draft: "حفظ مسودة"
     },
@@ -89,7 +90,8 @@
       d_notifs: "Reading notifications", d_reply: "Sending the reply", d_contacts: "Looking up contacts", d_cal: "Calendar",
       d_sms: "Preparing a message", d_call: "Preparing a call", d_where: "Finding the location", d_phone: "Working on the phone",
       d_steps: "Running steps on the phone", d_routine: "Running a task I know", d_agent: "Working inside the apps", d_look: "Looking at the screen",
-      d_site: "Opening the site", d_read: "Reading the page", d_fill: "Filling a field", d_web_agent: "Working on the site",
+      d_site: "Opening the site", d_read: "Reading the page", d_fill: "Filling a field", d_form: "Filling the form", d_find: "Searching the page",
+      d_wait: "Waiting for the page", d_dismiss: "Clearing what covers the page", d_upload: "Uploading a file", d_back: "Going back", d_key: "Pressing a key", d_web_agent: "Working on the site",
       d_search: "Searching the web", d_fetch: "Reading a page", d_weather: "Weather", d_info: "Checking your details", d_save_info: "Saving a detail", d_learn: "Keeping a lesson",
       d_remind: "Saving the reminder", d_reminders: "Reminders", d_mail: "Reading email", d_send_mail: "Sending the email", d_draft: "Saving a draft"
     }
@@ -181,7 +183,9 @@
     }
     if (name === "browser") {
       var op = String(args.op || "");
-      return op === "open" ? t("d_site") : op === "extract" ? t("d_read") : op === "type" ? t("d_fill") : op === "click" ? t("d_tap") : t("d_read");
+      var steps = { open: "d_site", extract: "d_read", type: "d_fill", click: "d_tap", fill: "d_form", scroll: "d_scroll",
+        find: "d_find", wait: "d_wait", dismiss: "d_dismiss", upload: "d_upload", back: "d_back", press: "d_key" };
+      return t(steps[op] || "d_read");
     }
     var plain = {
       phone_sequence: "d_steps", phone_routine: "d_routine", phone_agent: "d_agent", screen_look: "d_look",
