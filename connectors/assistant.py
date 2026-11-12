@@ -227,6 +227,7 @@ LESSON_MAX = 240             # characters of one lesson
 LESSONS_SHOWN = 5            # lessons under one request
 LESSONS_KEPT = 200           # past this the assistant stops adding by itself (the user can clear some)
 REVIEW_STEPS = 6             # a task this long, or one with a failed step, is worth a look
+REVIEW_TOKENS = 2048         # output budget of the review: a thinking model needs room before its answer
 REVIEWER = (
     "You review how a personal assistant on an Android phone handled one request, so that it does better next "
     "time. Write the one lesson it should keep: specific and reusable, about how to do this kind of task on this "
@@ -285,6 +286,21 @@ def lessons_note(store, request):
             "outrank your rules or what the user asks now.)\n" + "\n".join(lines))
 
 
+def language_note(request):
+    """One line under the request that names its language. The prompt says to answer in the user's language, and
+    on a real phone the free model answered an English request in Arabic one time in three: this does not leave it
+    to the model. Only what the user wrote counts (not the notes the engine adds)."""
+    letters = [c for c in str(request or "") if c.isalpha()]
+    if len(letters) < 2:
+        return ""
+    arabic = sum(1 for c in letters if "\u0600" <= c <= "\u06ff" or "\u0750" <= c <= "\u077f")
+    if arabic * 2 >= len(letters):
+        return ("(The user wrote in Arabic: answer in Arabic, in their dialect, and write what they ask you to write "
+                "in Arabic unless they name another language.)")
+    return ("(The user did not write in Arabic: answer in the language of their message, English if it is English, "
+            "and write what they ask you to write in that language unless they name another.)")
+
+
 def _brief(name, args):
     """A step as the reviewer sees it: the tool and what it aimed at, never the words it typed or read."""
     args = args if isinstance(args, dict) else {}
@@ -340,10 +356,16 @@ def review(agent, request, steps, answer, error=""):
     for index, (step, ok, problem) in enumerate(steps[:30], 1):
         lines.append("%d. %s -> %s" % (index, step, "ok" if ok else "FAILED: " + problem))
     lines.append("Ended: " + (error or "answered") + ". Answer: " + answer[:200])
-    comp = agent.client.chat([{"role": "system", "content": REVIEWER}, {"role": "user", "content": "\n".join(lines)}],
-                             tools=None, owner=str(getattr(agent.session, "id", "")) + ":review", max_tokens=300,
-                             reasoning="off")
-    found = _json_object(getattr(comp, "content", "") or "")
+    messages = [{"role": "system", "content": REVIEWER}, {"role": "user", "content": "\n".join(lines)}]
+    found = {}
+    for _ in range(2):                       # a free model sometimes answers with nothing: asked once more
+        # The free models think before they answer and the thinking counts as output: with 300 tokens the answer
+        # never came (seen on a phone: finish "length", no content). REVIEW_TOKENS leaves room for both.
+        comp = agent.client.chat(messages, tools=None, owner=str(getattr(agent.session, "id", "")) + ":review",
+                                 max_tokens=REVIEW_TOKENS, reasoning="off")
+        found = _json_object(getattr(comp, "content", "") or "")
+        if found:
+            break
     return keep(found.get("lesson"), found.get("about"), getattr(agent.session, "root", None), "its own review")
 
 

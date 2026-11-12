@@ -191,6 +191,8 @@ def apply(src, package, replace):
                             "            if lean.assistant():\n"
                             "                from . import assistant\n"
                             "                learned = assistant.lessons_note(self.memory, text)\n"
+                            "                language = assistant.language_note(text)\n"
+                            "                learned = (learned + \"\\n\\n\" + language).strip() if language else learned\n"
                             "        else:\n"
                             "            learned, _ = tools.memory_context(self.memory, text, 4)\n", 1)
         text = text.replace(ended, ended

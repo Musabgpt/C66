@@ -321,9 +321,13 @@ class AssistantLearningTests(_Saved):
         self.assertIn("2. phone action=tap -> FAILED: nothing on the screen says Post", seen)
         self.assertNotIn("text=", seen)                                                  # what was typed is not shown
         self.assertEqual((options["tools"], options["reasoning"]), (None, "off"))
+        self.assertGreaterEqual(options["max_tokens"], 2048)         # a thinking model spent 300 tokens on thinking alone
         for nothing in ('{"about": "x", "lesson": ""}', "no json here", "{broken"):
             self.assertEqual(assistant.review(self.agent(_Model(nothing), *self.stumbled()), request, steps, answer), "")
         self.assertEqual(len(assistant.lessons(self.root)), 1)
+        silent = _Model("")                                           # nothing came back: asked once more, then left
+        self.assertEqual(assistant.review(self.agent(silent, *self.stumbled()), request, steps, answer), "")
+        self.assertEqual(len(silent.asked), 2)
 
     def test_after_a_turn_the_app_learns_in_the_background(self):
         model = _Model('{"about": "posting on LinkedIn", "lesson": "In LinkedIn tap Start a post, not Post."}')
@@ -340,6 +344,20 @@ class AssistantLearningTests(_Saved):
             broken.join(10)                                                                      # a failed review: nothing
             self.assertEqual(len(self.emitted), 1)
             self.assertNotIn("s1", assistant._reviewing)
+
+    def test_the_request_names_its_language_for_the_model(self):
+        arabic = assistant.language_note("انشر على فيسبوك منشوراً عن افتتاح المتجر")
+        self.assertIn("answer in Arabic", arabic)
+        self.assertIn("answer in Arabic", assistant.language_note("افتح WhatsApp وأرسل لأحمد أني قادم"))     # mostly Arabic
+        english = assistant.language_note("Write a short post about my flower shop and publish it")
+        self.assertIn("did not write in Arabic", english)
+        self.assertIn("English if it is English", english)
+        self.assertIn("did not write in Arabic", assistant.language_note("Écris un message à Sara"))
+        for nothing in ("", "123", "؟", None):
+            self.assertEqual(assistant.language_note(nothing), "")
+        from . import agent as engine
+        source = Path(engine.__file__).read_text(encoding="utf-8")
+        self.assertIn("language = assistant.language_note(text)", source)
 
     def test_the_engine_reads_lessons_back_and_reviews_at_the_end_of_a_turn(self):
         from . import agent as engine
