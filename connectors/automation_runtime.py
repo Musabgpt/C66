@@ -380,19 +380,25 @@ def t_phone_power(ctx, op, text="", x=0, y=0, key="", package="", clear=False):
 
 
 @tools.tool("browser",
-            "Drive a background browser one step at a time (Pydoll over a real Chromium): op=open(url), "
-            "extract (the page's text and the names of its fields, buttons and links), click(target), "
-            "type(target, text; submit=true presses Enter after), press(key) or back. A target is a name from "
-            "extract (a button's or link's text, a field's placeholder or name) or a CSS selector. For a whole "
-            "multi-step web task use browser_agent. Pages that need the user's own logged-in session belong in "
-            "the phone's Chrome (phone open_url), not here.",
-            {"op": tools._s("open, extract, click, type, press or back"),
+            "Your own browser, one step at a time. In the app it lives inside the app itself: no window opens, "
+            "nothing is installed, and the user sees a small live picture of it in the conversation. op=open(url), "
+            "extract (the page's text and its fields, buttons and links, numbered), click(target), type(target, "
+            "text; submit=true presses Enter after), press (Enter), scroll (one screen down) or back. A target is "
+            "an element's number or its name from extract. It keeps its own sign-ins; a site that needs the "
+            "user's login, a code or a captcha: say so, the user can bring the browser to the front and do it.",
+            {"op": tools._s("open, extract, click, type, press, scroll or back"),
              "url": tools._s("url for open"),
-             "target": tools._s("for click/type: the element's visible name, or a CSS selector"),
+             "target": tools._s("for click/type: the element's number or visible name from extract"),
              "text": tools._s("text for type"),
              "submit": tools._b("type: press Enter afterwards (search boxes, forms)"),
-             "key": tools._s("press: Enter, Tab, Escape, ArrowDown, PageDown...")}, ["op"], "net")
+             "key": tools._s("press: Enter")}, ["op"], "net")
 def t_browser(ctx, op, url="", target="", text="", submit=False, key=""):
+    from . import own_browser
+    if own_browser.available():
+        # The app's own browser: no Termux, no install, and the conversation shows it live.
+        return own_browser.run(op, url=url, target=target, text=text, submit=submit, key=key)
+    if str(op) == "scroll":
+        op, key = "press", "PageDown"
     body = {"op": str(op), "url": url, "target": target, "text": text, "submit": bool(submit), "key": key}
     out = _ensure_and_call(ctx, "/browser", body, timeout=120)
     meta = {k: v for k, v in out.items() if k not in ("text", "elements", "png_base64")} if isinstance(out, dict) else {}

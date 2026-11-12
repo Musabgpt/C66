@@ -38,6 +38,7 @@
       confirm: "اسألني قبل الإرسال والنشر", confirm_sub: "مطفأ: المساعد يرسل وينشر لوحده",
       bubble: "الزر العائم", bubble_sub: "المساعد فوق أي تطبيق",
       language: "اللغة", lang_auto: "لغة الهاتف", skills: "المهام التي أتقنها",
+      browsing: "متصفّح المساعد", take_over: "اضغط لتتولّى التصفح بنفسك",
       learned: "تعلّمت", lessons: "ما تعلّمته", lessons_sub: "دروس يحفظها من عمله ومن تصحيحاتك", no_lessons: "لم يتعلّم شيئاً بعد. يحفظ درساً بعد كل مهمة تعثّرت، وحين تصحّحه.",
       saved: "حُفظ", offline: "تعذّر الاتصال بالمساعد. أعد فتح التطبيق.",
       termux_wait: "يجري الإعداد في Termux… تابع الخطوات هناك.", termux_paste: "أول مرة فقط: في Termux الصق الأمر واضغط Enter.",
@@ -79,6 +80,7 @@
       confirm: "Ask me before sending or publishing", confirm_sub: "Off: the assistant sends and publishes on its own",
       bubble: "Floating button", bubble_sub: "The assistant over any app",
       language: "Language", lang_auto: "The phone's", skills: "Tasks I know by heart",
+      browsing: "The assistant's browser", take_over: "Tap to take over",
       learned: "Learned", lessons: "What I have learned", lessons_sub: "Lessons it keeps from its own work and your corrections", no_lessons: "Nothing learned yet. It keeps a lesson after a task that stumbled, and when you correct it.",
       saved: "Saved", offline: "The assistant is not answering. Open the app again.",
       termux_wait: "Setting up in Termux… follow the steps there.", termux_paste: "First time only: paste the command in Termux and press Enter.",
@@ -195,6 +197,58 @@
     return name;
   }
 
+  // ------------------------------------------------------------------ the assistant's own browser, live
+  // The browser works inside the app with no window of its own. While it works, the turn carries a small live
+  // picture of it; a tap brings the real browser in front so the user can sign in or pass a check.
+  var browserTimer = 0;
+  function browserCard(L) {
+    if (L.browser) return L.browser;
+    var card = el("div", "browser");
+    var bar = el("div", "browser-bar");
+    bar.appendChild(el("span", "browser-dot"));
+    var where = el("span", "browser-where", t("browsing"));
+    where.dir = "auto";
+    bar.appendChild(where);
+    card.appendChild(bar);
+    var screen = el("div", "browser-screen");
+    var img = el("img");
+    img.alt = "";
+    screen.appendChild(img);
+    card.appendChild(screen);
+    if (phone && phone.showBrowser) {
+      card.title = t("take_over");
+      card.onclick = function () { phone.showBrowser(); };
+    }
+    L.box.appendChild(card);
+    L.browser = { card: card, where: where, img: img, screen: screen };
+    return L.browser;
+  }
+  function browserFrame(L) {
+    if (!L || !L.browser) return;
+    var next = new Image();
+    next.onload = function () {
+      if (!next.width) return;
+      L.browser.img.src = next.src;
+      L.browser.screen.classList.add("on");
+      scrollDown();
+    };
+    next.src = "/api/assistant/browser?shot=1&t=" + Date.now();
+  }
+  function browserWatch(L) {
+    clearInterval(browserTimer);
+    browserFrame(L);
+    browserTimer = setInterval(function () {
+      if (document.hidden) return;
+      if (S.live !== L || !S.busy) { clearInterval(browserTimer); browserFrame(L); return; }
+      browserFrame(L);
+    }, 1500);
+  }
+  function browserAt(L, meta) {
+    if (!L || !L.browser || !meta) return;
+    var text = meta.title || meta.url || "";
+    if (text) L.browser.where.textContent = text;
+  }
+
   // ------------------------------------------------------------------ the conversation
   function showHome() { $("#home").hidden = $("#messages").children.length > 0; }
   function newTurn(text) {
@@ -292,11 +346,17 @@
         var step = { label: doing(ev.name || "", ev.args), ok: null };
         L.steps.push(step);
         L.byId[ev.id] = step;
+        if (ev.name === "browser") {
+          browserCard(L);
+          if (ev.args && ev.args.url) browserAt(L, { url: ev.args.url });
+          if (!replay) browserWatch(L);
+        }
         if (!replay) setDoing(step.label + "…");
         break;
       case "tool_end":
         L = live();
         if (L.byId[ev.id]) L.byId[ev.id].ok = !!ev.ok && !ev.denied;
+        if (ev.name === "browser") { browserAt(L, ev.meta); if (!replay) browserFrame(L); }
         if (!replay && S.busy) setDoing(t("thinking"));
         break;
       case "approval":
@@ -328,6 +388,8 @@
         if (ev.error && ev.error !== "interrupted" && !L.failed) notice(ev.answer || ev.error, true);
         finishSteps(L, ev);
         if (!replay) {
+          clearInterval(browserTimer);
+          browserFrame(L);                       // the picture stays on what the browser ended on
           setBusy(false);
           $("#approvals").innerHTML = "";
           if (/[?؟]\s*$/.test(S.lastFinal)) showReplies();

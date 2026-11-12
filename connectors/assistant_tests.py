@@ -415,6 +415,43 @@ class AssistantPageTests(_Saved):
         for needed in ('case "learned":', "/api/assistant/lessons", "openLessons"):
             self.assertIn(needed, script)
 
+    def test_the_conversation_gets_the_browsers_live_picture(self):
+        from . import own_browser
+
+        class Raw(_Handler):
+            path = "/api/assistant/browser?shot=1&t=1"
+
+            def __init__(self):
+                super().__init__()
+                self.status, self.headers, self.wfile = None, {}, SimpleNamespace(write=lambda data: self.body.append(data))
+                self.body = []
+
+            def send_response(self, status):
+                self.status = status
+
+            def send_header(self, name, value):
+                self.headers[name] = value
+
+            def end_headers(self):
+                pass
+
+        with mock.patch.object(own_browser, "available", lambda: True), \
+                mock.patch.object(own_browser, "shot", lambda: (b"\xff\xd8jpeg", {"url": "https://x/", "title": "X"})):
+            raw = Raw()
+            self.assertTrue(assistant.route(raw, "GET", "/api/assistant/browser"))
+            self.assertEqual((raw.status, raw.headers["Content-Type"], raw.body), (200, "image/jpeg", [b"\xff\xd8jpeg"]))
+            self.assertEqual(raw.headers["Cache-Control"], "no-store")
+            status, where = self.call("GET", "/api/assistant/browser")
+            self.assertEqual((status, where["url"], where["picture"]), (200, "https://x/", True))
+        with mock.patch.object(own_browser, "available", lambda: False):
+            raw = Raw()
+            assistant.route(raw, "GET", "/api/assistant/browser")
+            self.assertEqual((raw.status, raw.body), (204, []))                    # no browser, no picture
+        script = (UI / "assistant.js").read_text(encoding="utf-8")
+        for needed in ('ev.name === "browser"', "/api/assistant/browser?shot=1", "phone.showBrowser()", "browserWatch(L)"):
+            self.assertIn(needed, script)
+        self.assertIn(".browser-screen img", (UI / "assistant.css").read_text(encoding="utf-8"))
+
     def test_bad_requests_get_a_reason(self):
         self.assertEqual(self.call("POST", "/api/assistant", {"profile": {"1bad": "x"}})[0], 400)
         status, out = self.call("POST", "/api/assistant/open", {"page": "developer"})
@@ -493,6 +530,7 @@ class AssistantProfileTests(unittest.TestCase):
         for section in ("# You act on your own", "# Email", "# Messages", "# Posts", "# Travel",
                         "# Forms", "# Everyday", "# Using the phone", "# Rules"):
             self.assertIn(section, text)
+        self.assertIn("browser is your own browser. It lives inside the app, opens no window", text)
         for needed in ("notification_reply", "gmail_search", "phone_routine", "browser_agent", "my_info",
                        "confirm_before_sending", "never pay", "Task memory tm:", "# You act on your own",
                        "publish it at once", 'do not ask "shall I send it?"'):

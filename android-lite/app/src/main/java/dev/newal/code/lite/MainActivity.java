@@ -48,6 +48,7 @@ public class MainActivity extends Activity {
         root.addView(web, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT));
         setContentView(root);
+        InAppBrowser.host(this, root);          // the assistant's own browser lives behind this page
         TaskMemoryDb.warm(this);                // the task memory, ready for the agent's first phone request
         boolean night = (getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK)
                 == Configuration.UI_MODE_NIGHT_YES;
@@ -102,7 +103,7 @@ public class MainActivity extends Activity {
                 return true;
             }
         });
-        page("جارٍ تشغيل NewAl Code…", "يتم تجهيز Python وبدء التطبيق. قد يستغرق التشغيل الأول حتى دقيقتين.", night);
+        page("جارٍ تشغيل MusabAI…", "يتم تجهيز المساعد. قد يستغرق التشغيل الأول حتى دقيقتين.", night);
         if (Build.VERSION.SDK_INT >= 33) {
             requestPermissions(new String[] {"android.permission.POST_NOTIFICATIONS"}, 1);
         }
@@ -177,7 +178,7 @@ public class MainActivity extends Activity {
         boolean night = (getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK)
                 == Configuration.UI_MODE_NIGHT_YES;
         if (!readiness.hasPage())
-            page("جارٍ تشغيل NewAl Code…", "يتم تجهيز Python وبدء التطبيق. قد يستغرق التشغيل الأول حتى دقيقتين.", night);
+            page("جارٍ تشغيل MusabAI…", "يتم تجهيز المساعد. قد يستغرق التشغيل الأول حتى دقيقتين.", night);
         Intent service = new Intent(this, AgentService.class);
         if (retry) service.setAction(AgentService.RETRY);
         service.putExtra(AgentService.START_RESULT, new android.os.ResultReceiver(
@@ -274,7 +275,7 @@ public class MainActivity extends Activity {
                     android.widget.Toast.makeText(this, "تعذّر الاتصال بالمحرّك. ستتم إعادة المحاولة عند الرجوع للتطبيق.",
                             android.widget.Toast.LENGTH_LONG).show();
                 } else {
-                    page("تعذّر تشغيل NewAl Code", detail, night, true);
+                    page("تعذّر تشغيل MusabAI", detail, night, true);
                 }
             });
         }, "newal-wait").start();
@@ -296,6 +297,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         readiness.pause();
+        InAppBrowser.unhost(this);
         super.onDestroy();
     }
 
@@ -436,6 +438,9 @@ public class MainActivity extends Activity {
 
     @Override
     public void onBackPressed() {
+        if (InAppBrowser.back(this)) {
+            return;                            // the assistant's browser was in front: behind the conversation again
+        }
         if (web.canGoBack()) {
             web.goBack();
         } else {

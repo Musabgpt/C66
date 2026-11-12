@@ -163,6 +163,12 @@ final class WebBridge {
         });
     }
 
+    /** The assistant's own browser, brought in front of the conversation for the user (a sign-in, a check). */
+    @JavascriptInterface
+    public void showBrowser() {
+        act.runOnUiThread(() -> InAppBrowser.show(act));
+    }
+
     @JavascriptInterface
     public void openAccessibilitySettings() {
         act.runOnUiThread(() -> {

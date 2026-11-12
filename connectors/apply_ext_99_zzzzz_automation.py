@@ -62,7 +62,7 @@ def _soft(path, before, after):
 def apply(src, package, replace):
     for name in ("automation_llm.py", "automation_llm_tests.py", "automation_server.py",
                  "automation_server_tests.py", "automation_runtime.py", "automation_runtime_tests.py",
-                 "automation_requirements.txt"):
+                 "automation_requirements.txt", "own_browser.py", "own_browser_tests.py"):
         shutil.copyfile(src / name, package / name)
 
     # 1) The free-pool OpenAI endpoint, hooked into the engine HTTP server.
@@ -141,3 +141,4 @@ def apply(src, package, replace):
         f.write("\nfrom .automation_llm_tests import AutomationLlmTests  # noqa: E402,F401 - parity CI\n")
         f.write("from .automation_runtime_tests import AutomationToolsTests, AutomationEnsureTests  # noqa: E402,F401\n")
         f.write("from .automation_server_tests import Uiautomator2Tests, PhoneCallTests, ServerTests, TargetTests  # noqa: E402,F401\n")
+        f.write("from .own_browser_tests import OwnBrowserTests  # noqa: E402,F401\n")

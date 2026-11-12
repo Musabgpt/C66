@@ -11,6 +11,7 @@
   lesson (review); the learn tool keeps what the user corrects or prefers; the lessons that fit come back under
   later requests (lessons_note). Phone procedures that worked are kept by phone_fast as before.
 * /api/assistant: the settings sheet of the page (profile, confirmation, lessons, what the phone allows).
+  /api/assistant/browser: the small live window of the assistant's own browser (own_browser.py).
 """
 import json
 import os
@@ -409,6 +410,21 @@ def route(handler, method, path, body=None):
             handler._json(state())
         elif method == "POST" and path == "/api/assistant":
             handler._json(update(body))
+        elif method == "GET" and path == "/api/assistant/browser":
+            # The assistant's own browser, for the small live window in the conversation: its screen as a JPEG
+            # (?shot=1), or where it is.
+            from . import own_browser
+            picture, where = own_browser.shot() if own_browser.available() else (b"", {})
+            if "shot=1" in str(getattr(handler, "path", "")):
+                handler.send_response(200 if picture else 204)
+                handler.send_header("Content-Type", "image/jpeg")
+                handler.send_header("Content-Length", str(len(picture)))
+                handler.send_header("Cache-Control", "no-store")
+                handler.end_headers()
+                if picture:
+                    handler.wfile.write(picture)
+            else:
+                handler._json(dict(where, ok=True, picture=bool(picture)))
         elif method == "GET" and path == "/api/assistant/lessons":
             handler._json({"ok": True, "lessons": lessons()})
         elif method == "POST" and path == "/api/assistant/lessons/forget":
