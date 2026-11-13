@@ -122,7 +122,8 @@ def _must(text, anchor, what):
 
 def apply(src, package, replace):
     for name in ("assistant.py", "assistant_tests.py", "assistant_mail.py", "assistant_mail_tests.py",
-                 "assistant_files.py", "assistant_office.py", "assistant_files_tests.py"):
+                 "assistant_files.py", "assistant_office.py", "assistant_files_tests.py",
+                 "assistant_memory.py", "assistant_memory_tests.py"):
         shutil.copyfile(src / name, package / name)
 
     # 1) The prompt, whole, in its own file: the app's engine reads it, the developer profile stays for the rest.
@@ -179,6 +180,32 @@ def apply(src, package, replace):
         text = text.replace(allowed, allowed
                             + '        from . import assistant\n'
                               '        rules = assistant.rules(rules, self, name, args)\n', 1)
+        agent.write_text(text, encoding="utf-8")
+
+    # 4a) The conversation's own memory: when a long conversation is shortened, the assistant keeps a record of every
+    # turn taken from the conversation itself, the last exchanges word for word, and a summary with room to be written.
+    text = agent.read_text(encoding="utf-8")
+    if "assistant_memory" not in text:
+        summary_block = (
+            '        ask = prompts.COMPACT + ((" Focus: " + note) if note else "")\n'
+            '        msgs = self.request_messages() + [{"role": "user", "content": ask}]\n'
+            '        comp = self.client.chat(msgs, tools=None, owner=s.id, max_tokens=700, reasoning="off",\n'
+            '                                cancel=self.cancel)\n'
+            '        from . import continuity\n'
+            '        summary = (comp.content or "").strip()\n'
+            '        from . import phone_fast\n'
+            '        s.replace_messages(continuity.compact_messages(\n'
+            '            s, summary, s.active_objective, screen="" if force else phone_fast.compact_screen(self)))\n')
+        _must(text, summary_block, "agent.py compaction")
+        indented = "".join("    " + line + "\n" if line else "\n" for line in summary_block.rstrip("\n").split("\n"))
+        text = text.replace(summary_block,
+                            "        from . import lean\n"
+                            "        if lean.assistant():\n"
+                            "            from . import assistant_memory, phone_fast\n"
+                            "            summary = assistant_memory.summarize(self, note)\n"
+                            "            s.replace_messages(assistant_memory.compact_messages(\n"
+                            "                s, summary, s.active_objective, screen=\"\" if force else phone_fast.compact_screen(self)))\n"
+                            "        else:\n" + indented, 1)
         agent.write_text(text, encoding="utf-8")
 
     # 4b) It gets better on its own: the lessons that fit come back under a request (the developer profile keeps
@@ -255,3 +282,4 @@ def apply(src, package, replace):
                 "AssistantLearningTests, AssistantPageTests, AssistantProfileTests  # noqa: E402,F401 - parity CI\n")
         f.write("from .assistant_mail_tests import AssistantMailTests  # noqa: E402,F401 - parity CI\n")
         f.write("from .assistant_files_tests import AssistantFilesTests  # noqa: E402,F401 - parity CI\n")
+        f.write("from .assistant_memory_tests import AssistantMemoryTests  # noqa: E402,F401 - parity CI\n")
