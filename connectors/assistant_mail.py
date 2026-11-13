@@ -65,17 +65,32 @@ def sender():
     return _SENDER["name"], _SENDER["address"]
 
 
+class MailError(tools.ToolError, ValueError):
+    """What is wrong with a message, said to the model (and a ValueError, as the engine's own mail tool raised)."""
+
+
+def one_line(value, what):
+    """A header value: one line. A line break in it would start another header (a hidden recipient, a new subject)."""
+    value = str(value or "")
+    if "\n" in value or "\r" in value:
+        raise MailError("%s has a line break in it: an address or a subject is one line" % what)
+    return value.strip()
+
+
 def addresses(text, what="to"):
     """The addresses in "a@b.c, Name <d@e.f>; g@h.i", each checked."""
-    raw = text if isinstance(text, (list, tuple)) else [str(text or "").replace(";", ",").replace("،", ",")]
+    if isinstance(text, (list, tuple)):
+        raw = [one_line(x, what) for x in text]
+    else:
+        raw = [one_line(text, what).replace(";", ",").replace("،", ",")]
     out = []
     for name, address in getaddresses([str(x) for x in raw]):
         address = address.strip()
         if not address:
             continue
         if not ADDRESS.match(address):
-            raise tools.ToolError("%s: %r is not an email address (ask the user for it, or find it in their contacts or mail)"
-                                  % (what, address))
+            raise MailError("%s: %r is not an email address (ask the user for it, or find it in their contacts or mail)"
+                            % (what, address))
         out.append(formataddr((name.strip(), address)) if name.strip() else address)
     return out
 
@@ -196,7 +211,7 @@ def _report(what, to, subject, files, name, added, found, data):
 
 def send(ctx, to, subject, text, cc="", bcc="", attach=None):
     to_list, cc_list, bcc_list = addresses(to), addresses(cc, "cc"), addresses(bcc, "bcc")
-    subject, text = str(subject or "").strip(), str(text or "").strip()
+    subject, text = one_line(subject, "the subject"), str(text or "").strip()
     if not to_list:
         raise tools.ToolError("the message has no recipient: to is an email address")
     if not subject:

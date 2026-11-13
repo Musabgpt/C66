@@ -146,8 +146,12 @@ class RuntimeTest(unittest.TestCase):
             from email.policy import default
             message = BytesParser(policy=default).parsebytes(base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4)))
             self.assertEqual(str(message["Subject"]), "اختبار")
-            self.assertEqual(message.get_content().strip(), "مرحبا مصعب")
+            # A whole message now: the text, and the same words as HTML beside it (assistant_mail.py).
+            self.assertEqual(message.get_body(("plain",)).get_content().strip(), "مرحبا مصعب")
+            self.assertIn("مرحبا مصعب", message.get_body(("html",)).get_content())
             with self.assertRaises(ValueError): self.t.REGISTRY["gmail_send"].fn(None, to="user@example.invalid\nBcc: victim@example.invalid", subject="test", text="hello")
+            with self.assertRaises(ValueError): self.t.REGISTRY["gmail_send"].fn(None, to="user@example.invalid", subject="test\nBcc: victim@example.invalid", text="hello")
+            self.assertEqual(req.call_args.args[2], "/gmail/v1/users/me/messages/send")     # nothing went out after the first
 
     def test_github_publish_is_one_commit_and_non_force(self):
         responses = [{"object": {"sha": "parent"}}, {"tree": {"sha": "old-tree"}}, {"sha": "new-tree"}, {"sha": "new-commit"}, {"object": {"sha": "new-commit"}}]

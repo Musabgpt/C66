@@ -124,6 +124,14 @@ class AssistantMailTests(unittest.TestCase):
                 with self.assertRaises(tools.ToolError):
                     mail.send(self.ctx, "a@b.co", "The quotation you asked for", "Attached.", attach=bad)
 
+    def test_a_line_break_cannot_add_a_header(self):
+        for bad in ({"to": "a@b.co\nBcc: victim@x.org", "subject": "Lunch on Friday at one", "text": "Shall we meet?"},
+                    {"to": "a@b.co", "subject": "Lunch\r\nBcc: victim@x.org", "text": "Shall we meet?"},
+                    {"to": "a@b.co", "subject": "Lunch on Friday at one", "text": "Shall we meet?", "cc": "c@d.io\nX-Extra: 1"}):
+            with self.assertRaises(ValueError):
+                mail.send(self.ctx, **bad)
+        self.assertEqual(self.sent, [])
+
     def test_addresses_however_they_are_written(self):
         self.assertEqual(mail.addresses("a@b.co; Omar Ali <omar@x.org>، c@d.io"), ["a@b.co", "Omar Ali <omar@x.org>", "c@d.io"])
         self.assertEqual(mail.addresses(""), [])
