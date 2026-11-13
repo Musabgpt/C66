@@ -533,6 +533,8 @@ class AssistantProfileTests(unittest.TestCase):
                         "# Forms", "# Everyday", "# Using the phone", "# Rules"):
             self.assertIn(section, text)
         self.assertIn("browser is your own browser inside the app. It opens no window", text)
+        for needed in ("# Files", "file_create", "do not paste its whole content", "attach=name"):
+            self.assertIn(needed, text)
         for needed in ("# Your browser", "op=fill fields=", "op=dismiss", "a captcha", "Never a marketing or newsletter box",
                        "gmail_reply", "never a link alone", "do not extract again after a step"):
             self.assertIn(needed, text)
@@ -545,7 +547,7 @@ class AssistantProfileTests(unittest.TestCase):
         for gone in ("BusyBox", "GitHub", "bash", "code_check", "toolchain_status", "phone_power", "adb_connect",
                      "AGENTS.md", "npm", "Building software"):
             self.assertNotIn(gone, text, gone)
-        self.assertLess(len(text), 13500)                    # whole, but not a manual: every request carries it
+        self.assertLess(len(text), 14500)                    # whole, but not a manual: every request carries it
 
     def test_the_prompt_reaches_the_model_on_the_phone(self):
         env = {"os": "Android 14", "shell": "sh"}

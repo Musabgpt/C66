@@ -23,7 +23,8 @@ LEAN_ASSISTANT = '''
 #   phone_agent (a whole goal across screens) and screen_look;
 # * websites: browser (the app's own browser, inside the app) and browser_agent; web_search, web_fetch and weather;
 # * the user: my_info (their saved details for forms and bookings), learn (what they correct or prefer),
-#   reminders (scheduled_task_*), and their Gmail and Google Calendar when connected.
+#   reminders (scheduled_task_*), and their Gmail and Google Calendar when connected;
+# * files of the conversation: file_create, file_read, file_list (documents, sheets, slides, PDFs, pictures).
 # The developer set above (files, shell, GitHub, code checks) is what the engine offers anywhere else: run from
 # source, in Termux, in its own tests. Settings "assistant": false brings it back in the app too.
 ASSISTANT = (
@@ -31,6 +32,7 @@ ASSISTANT = (
     "browser", "browser_agent",
     "web_search", "web_fetch", "weather",
     "my_info", "learn",
+    "file_create", "file_read", "file_list",
     "scheduled_task_create", "scheduled_task_list", "scheduled_task_pause",
     "scheduled_task_resume", "scheduled_task_delete",
 )
@@ -119,7 +121,8 @@ def _must(text, anchor, what):
 
 
 def apply(src, package, replace):
-    for name in ("assistant.py", "assistant_tests.py", "assistant_mail.py", "assistant_mail_tests.py"):
+    for name in ("assistant.py", "assistant_tests.py", "assistant_mail.py", "assistant_mail_tests.py",
+                 "assistant_files.py", "assistant_office.py", "assistant_files_tests.py"):
         shutil.copyfile(src / name, package / name)
 
     # 1) The prompt, whole, in its own file: the app's engine reads it, the developer profile stays for the rest.
@@ -148,7 +151,8 @@ def apply(src, package, replace):
 
     replace(package / "claude_parity.py",
             '"phone_agent", "phone_power", "browser", "browser_agent", "adb_connect", "github",',
-            '"phone_agent", "phone_power", "browser", "browser_agent", "adb_connect", "my_info", "learn", "github",')
+            '"phone_agent", "phone_power", "browser", "browser_agent", "adb_connect", "my_info", "learn", '
+            '"file_create", "file_read", "file_list", "github",')
 
     # 3) The page's API.
     server = package / "server.py"
@@ -250,3 +254,4 @@ def apply(src, package, replace):
         f.write("\nfrom .assistant_tests import AssistantInfoTests, AssistantRulesTests, AssistantConsentTests, "
                 "AssistantLearningTests, AssistantPageTests, AssistantProfileTests  # noqa: E402,F401 - parity CI\n")
         f.write("from .assistant_mail_tests import AssistantMailTests  # noqa: E402,F401 - parity CI\n")
+        f.write("from .assistant_files_tests import AssistantFilesTests  # noqa: E402,F401 - parity CI\n")

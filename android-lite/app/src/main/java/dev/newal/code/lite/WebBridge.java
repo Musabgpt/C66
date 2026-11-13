@@ -68,6 +68,51 @@ final class WebBridge {
         });
     }
 
+    /** Opens a file of the conversation (made by the assistant, or shared by the user) in the phone's app for it. */
+    @JavascriptInterface
+    public String openFile(String path) {
+        return file(path, false);
+    }
+
+    /** The phone's share sheet for a file of the conversation. */
+    @JavascriptInterface
+    public String shareFile(String path) {
+        return file(path, true);
+    }
+
+    /** "ok", else why not. Only the conversation's own folders (Files, Shared) are served, one file at a time. */
+    private String file(String path, boolean share) {
+        try {
+            java.io.File home = new Setup(act).home.getCanonicalFile();
+            java.io.File f = new java.io.File(path == null ? "" : path).getCanonicalFile();
+            String made = new java.io.File(home, "Files").getPath() + java.io.File.separator;
+            String given = new java.io.File(home, "Shared").getPath() + java.io.File.separator;
+            if (!(f.getPath().startsWith(made) || f.getPath().startsWith(given)) || !f.isFile()) {
+                return "no such file";
+            }
+            final Intent view = Phone.viewFile(act, f);
+            final Intent send = new Intent(Intent.ACTION_SEND).setType(view.getType())
+                    .putExtra(Intent.EXTRA_STREAM, view.getData())
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            send.setClipData(android.content.ClipData.newRawUri(f.getName(), view.getData()));
+            final Intent chooser = Intent.createChooser(send, f.getName()).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            act.runOnUiThread(() -> {
+                try {
+                    act.startActivity(share ? chooser : view);
+                } catch (android.content.ActivityNotFoundException e) {
+                    try {
+                        act.startActivity(chooser);       // no app opens this kind: let the user choose where it goes
+                    } catch (Exception ignored) {
+                    }
+                } catch (Exception ignored) {
+                }
+            });
+            return "ok";
+        } catch (Exception e) {
+            return String.valueOf(e.getMessage());
+        }
+    }
+
     /** {"accessibility": the screen control is on, "termux": {...}} */
     @JavascriptInterface
     public String status() {

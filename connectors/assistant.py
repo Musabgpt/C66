@@ -405,6 +405,8 @@ def route(handler, method, path, body=None):
     """The page's API. True when the request was answered."""
     if not path.startswith("/api/assistant"):
         return False
+    if path in ("/api/assistant/files", "/api/assistant/file", "/api/assistant/upload"):
+        return assistant_files.route(handler, method, path, body)
     try:
         if method == "GET" and path == "/api/assistant":
             handler._json(state())
@@ -494,3 +496,8 @@ NAMES = ["my_info", "learn"]
 # (assistant_mail.py takes the place of the engine's gmail_send and adds gmail_reply).
 from . import assistant_mail  # noqa: E402 - after the tools above
 assistant_mail.install()
+
+# Files inside the conversation: made, read back, listed (assistant_files.py; Word, Excel and PowerPoint are
+# written and read by assistant_office.py with the standard library alone).
+from . import assistant_files  # noqa: E402
+NAMES += assistant_files.NAMES

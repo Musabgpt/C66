@@ -204,6 +204,11 @@ final class Phone {
         return o;
     }
 
+    /** An intent that shows one of the app's own files in the phone's app for its kind (read-only, this file only). */
+    static Intent viewFile(Context ctx, File f) throws Exception {
+        return safeUrl(ctx, Uri.fromFile(f).toString());
+    }
+
     private static Intent safeUrl(Context ctx, String raw) throws Exception {
         Uri source=Uri.parse(raw); if (!"file".equalsIgnoreCase(source.getScheme())) return new Intent(Intent.ACTION_VIEW, source);
         File f=new File(source.getPath()==null?"":source.getPath()).getCanonicalFile(), files=ctx.getFilesDir().getCanonicalFile(), shared=Environment.getExternalStorageDirectory().getCanonicalFile();

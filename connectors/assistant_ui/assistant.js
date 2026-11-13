@@ -5,7 +5,7 @@
 
   var $ = function (sel, root) { return (root || document).querySelector(sel); };
   var phone = window.NewAlPhone || null;
-  var S = { state: null, me: null, lang: "ar", sid: "", busy: false, live: null, lastFinal: "" };
+  var S = { state: null, me: null, lang: "ar", sid: "", busy: false, live: null, lastFinal: "", files: [] };
 
   // ------------------------------------------------------------------ words
   var WORDS = {
@@ -42,7 +42,9 @@
       learned: "تعلّمت", lessons: "ما تعلّمته", lessons_sub: "دروس يحفظها من عمله ومن تصحيحاتك", no_lessons: "لم يتعلّم شيئاً بعد. يحفظ درساً بعد كل مهمة تعثّرت، وحين تصحّحه.",
       saved: "حُفظ", offline: "تعذّر الاتصال بالمساعد. أعد فتح التطبيق.",
       termux_wait: "يجري الإعداد في Termux… تابع الخطوات هناك.", termux_paste: "أول مرة فقط: في Termux الصق الأمر واضغط Enter.",
-      shared: "أضفته إلى رسالتك: قل ما تريد أن أفعل به.",
+      shared: "أضفته إلى رسالتك: قل ما تريد أن أفعل به.", tap_open: "اضغط للفتح", share: "مشاركة", remove: "إزالة",
+      file_gone: "تعذّر فتح الملف.", file_big: "الملف أكبر من 24 ميغابايت.", with_files: "اقرأ هذا الملف وقل لي ما فيه.",
+      attach: "إرفاق ملف",
       d_open: "فتح {x}", d_page: "فتح صفحة", d_screen: "قراءة الشاشة", d_tap: "نقر", d_type: "كتابة", d_scroll: "تمرير",
       d_notifs: "قراءة الإشعارات", d_reply: "إرسال الرد", d_contacts: "البحث في جهات الاتصال", d_cal: "التقويم",
       d_sms: "تجهيز رسالة", d_call: "تجهيز اتصال", d_where: "تحديد الموقع", d_phone: "العمل على الهاتف",
@@ -50,7 +52,8 @@
       d_site: "فتح الموقع", d_read: "قراءة الصفحة", d_fill: "تعبئة حقل", d_form: "تعبئة النموذج", d_find: "البحث في الصفحة",
       d_wait: "انتظار الصفحة", d_dismiss: "إغلاق ما يحجب الصفحة", d_upload: "رفع ملف", d_back: "رجوع", d_key: "ضغط مفتاح", d_web_agent: "العمل في الموقع",
       d_search: "البحث في الويب", d_fetch: "قراءة صفحة", d_weather: "حالة الطقس", d_info: "مراجعة معلوماتك", d_save_info: "حفظ معلومة", d_learn: "حفظ درس",
-      d_remind: "حفظ التذكير", d_reminders: "التذكيرات", d_mail: "قراءة البريد", d_send_mail: "إرسال البريد", d_draft: "حفظ مسودة"
+      d_remind: "حفظ التذكير", d_reminders: "التذكيرات", d_mail: "قراءة البريد", d_send_mail: "إرسال البريد", d_draft: "حفظ مسودة",
+      d_file: "إنشاء ملف", d_file_read: "قراءة الملف", d_files: "ملفات المحادثة"
     },
     en: {
       placeholder: "Type or say what you need…",
@@ -85,7 +88,9 @@
       learned: "Learned", lessons: "What I have learned", lessons_sub: "Lessons it keeps from its own work and your corrections", no_lessons: "Nothing learned yet. It keeps a lesson after a task that stumbled, and when you correct it.",
       saved: "Saved", offline: "The assistant is not answering. Open the app again.",
       termux_wait: "Setting up in Termux… follow the steps there.", termux_paste: "First time only: paste the command in Termux and press Enter.",
-      shared: "Added to your message: say what to do with it.",
+      shared: "Added to your message: say what to do with it.", tap_open: "tap to open", share: "Share", remove: "Remove",
+      file_gone: "The file could not be opened.", file_big: "The file is over 24 MB.", with_files: "Read this file and tell me what it says.",
+      attach: "Attach a file",
       d_open: "Opening {x}", d_page: "Opening a page", d_screen: "Reading the screen", d_tap: "Tapping", d_type: "Typing", d_scroll: "Scrolling",
       d_notifs: "Reading notifications", d_reply: "Sending the reply", d_contacts: "Looking up contacts", d_cal: "Calendar",
       d_sms: "Preparing a message", d_call: "Preparing a call", d_where: "Finding the location", d_phone: "Working on the phone",
@@ -93,7 +98,8 @@
       d_site: "Opening the site", d_read: "Reading the page", d_fill: "Filling a field", d_form: "Filling the form", d_find: "Searching the page",
       d_wait: "Waiting for the page", d_dismiss: "Clearing what covers the page", d_upload: "Uploading a file", d_back: "Going back", d_key: "Pressing a key", d_web_agent: "Working on the site",
       d_search: "Searching the web", d_fetch: "Reading a page", d_weather: "Weather", d_info: "Checking your details", d_save_info: "Saving a detail", d_learn: "Keeping a lesson",
-      d_remind: "Saving the reminder", d_reminders: "Reminders", d_mail: "Reading email", d_send_mail: "Sending the email", d_draft: "Saving a draft"
+      d_remind: "Saving the reminder", d_reminders: "Reminders", d_mail: "Reading email", d_send_mail: "Sending the email", d_draft: "Saving a draft",
+      d_file: "Making a file", d_file_read: "Reading the file", d_files: "The conversation's files"
     }
   };
   function t(key, vars) {
@@ -118,7 +124,9 @@
     post: '<path d="M4 10v4a1 1 0 0 0 1 1h2l5 4V5L7 9H5a1 1 0 0 0-1 1zM16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/>',
     form: '<rect x="5" y="3" width="14" height="18" rx="2.5"/><path d="M9 8h6M9 12h6M9 16h3"/>',
     remind: '<path d="M6 16V11a6 6 0 1 1 12 0v5l1.5 2h-15L6 16zM10 21h4"/>',
-    trash: '<path d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12"/>'
+    trash: '<path d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12"/>',
+    clip: '<path d="M20 11.5l-8.2 8.2a5 5 0 0 1-7-7l8.6-8.6a3.4 3.4 0 0 1 4.8 4.8l-8.5 8.5a1.8 1.8 0 0 1-2.6-2.6l7.6-7.6"/>',
+    share: '<circle cx="6" cy="12" r="2.3"/><circle cx="17.5" cy="6" r="2.3"/><circle cx="17.5" cy="18" r="2.3"/><path d="M8 11l7.4-3.9M8 13l7.4 3.9"/>'
   };
   function icon(name) { return '<svg viewBox="0 0 24 24" aria-hidden="true">' + ICONS[name] + "</svg>"; }
 
@@ -188,6 +196,7 @@
       return t(steps[op] || "d_read");
     }
     var plain = {
+      file_create: "d_file", file_read: "d_file_read", file_list: "d_files", gmail_reply: "d_send_mail",
       phone_sequence: "d_steps", phone_routine: "d_routine", phone_agent: "d_agent", screen_look: "d_look",
       browser_agent: "d_web_agent", web_search: "d_search", web_fetch: "d_fetch", weather: "d_weather",
       scheduled_task_create: "d_remind", gmail_send: "d_send_mail", gmail_create_draft: "d_draft"
@@ -270,9 +279,103 @@
 
   // ------------------------------------------------------------------ the conversation
   function showHome() { $("#home").hidden = $("#messages").children.length > 0; }
+  // ------------------------------------------------------------------ files in the conversation
+  // A file the assistant made comes as a card: a tap opens it in the phone's app for it, the share mark sends it
+  // on. Files the user attaches ride with their message: the model gets their paths under the words (FILES_MARK),
+  // the user sees them as small chips.
+  var FILES_MARK = "\n\nFiles attached to this message (open them with file_read):\n";
+  function fileSize(n) { return n < 1024 ? n + " B" : n < 1048576 ? Math.round(n / 1024) + " KB" : (n / 1048576).toFixed(1) + " MB"; }
+  function baseName(p) { return String(p || "").replace(/\\/g, "/").split("/").pop(); }
+  function fileKind(name) { var m = /\.([A-Za-z0-9]{1,5})$/.exec(String(name || "")); return m ? m[1].toLowerCase() : ""; }
+  function fileTone(kind) {
+    return /^(doc|docx|odt|rtf|txt|md)$/.test(kind) ? "k-word" : /^(xls|xlsx|csv|tsv|ods)$/.test(kind) ? "k-table"
+      : /^(ppt|pptx|odp)$/.test(kind) ? "k-slides" : kind === "pdf" ? "k-pdf" : /^(png|jpg|jpeg|webp|gif|bmp|heic)$/.test(kind) ? "k-picture" : "k-other";
+  }
+  function openFile(path) {
+    if (phone && phone.openFile) {
+      var answer = "";
+      try { answer = phone.openFile(path); } catch (_) { answer = "failed"; }
+      if (answer !== "ok") toast(t("file_gone"), 4000);
+    } else {
+      window.open("/api/assistant/file?path=" + encodeURIComponent(path), "_blank");
+    }
+  }
+  function fileCard(L, f) {
+    if (!f || !f.path) return;
+    var kind = f.kind || fileKind(f.name);
+    var card = el("div", "file");
+    var badge = el("span", "file-kind " + fileTone(kind), (kind || "file").toUpperCase().slice(0, 4));
+    var words = el("span", "file-words");
+    var title = el("span", "file-name", f.name || baseName(f.path));
+    title.dir = "auto";
+    words.appendChild(title);
+    words.appendChild(el("span", "file-size", fileSize(f.bytes || 0) + " · " + t("tap_open")));
+    card.appendChild(badge);
+    card.appendChild(words);
+    card.onclick = function () { openFile(f.path); };
+    if (phone && phone.shareFile) {
+      var share = el("button", "icon file-share");
+      share.type = "button";
+      share.innerHTML = icon("share");
+      share.setAttribute("aria-label", t("share"));
+      share.onclick = function (ev) { ev.stopPropagation(); try { phone.shareFile(f.path); } catch (_) { toast(t("file_gone"), 4000); } };
+      card.appendChild(share);
+    }
+    L.box.appendChild(card);
+    scrollDown();
+  }
+  /** A sent message as the user wrote it, and the paths of the files that came with it. */
+  function splitFiles(text) {
+    var at = String(text || "").indexOf(FILES_MARK);
+    if (at < 0) return { text: text || "", files: [] };
+    var paths = text.slice(at + FILES_MARK.length).split("\n").filter(function (p) { return p.trim(); });
+    return { text: text.slice(0, at), files: paths };
+  }
+  function renderAttached() {
+    var box = $("#attached");
+    box.innerHTML = "";
+    box.hidden = !S.files.length;
+    S.files.forEach(function (f, i) {
+      var chip = el("span", "chip");
+      var label = el("span", "chip-name", f.name);
+      label.dir = "auto";
+      chip.appendChild(label);
+      var drop = el("button", "chip-drop", "×");
+      drop.type = "button";
+      drop.setAttribute("aria-label", t("remove"));
+      drop.onclick = function () { S.files.splice(i, 1); renderAttached(); };
+      chip.appendChild(drop);
+      box.appendChild(chip);
+    });
+  }
+  function attach(file) {
+    if (file.size > 24 * 1024 * 1024) { toast(t("file_big"), 5000); return; }
+    var reader = new FileReader();
+    reader.onload = function () {
+      var data = String(reader.result || "");
+      api("/api/assistant/upload", { name: file.name, data: data.slice(data.indexOf(",") + 1) }).then(function (d) {
+        S.files.push({ path: d.file.path, name: d.file.name });
+        renderAttached();
+      }).catch(function (e) { toast(e.message || t("offline"), 5000); });
+    };
+    reader.onerror = function () { toast(t("file_gone"), 4000); };
+    reader.readAsDataURL(file);
+  }
+
   function newTurn(text) {
     var box = el("div", "turn");
-    if (text) { var mine = el("div", "me", text); mine.dir = "auto"; box.appendChild(mine); }
+    var sent = splitFiles(text);
+    if (sent.text) { var mine = el("div", "me", sent.text); mine.dir = "auto"; box.appendChild(mine); }
+    if (sent.files.length) {
+      var row = el("div", "me-files");
+      sent.files.forEach(function (p) {
+        var chip = el("span", "chip", baseName(p));
+        chip.dir = "auto";
+        chip.onclick = function () { openFile(p); };
+        row.appendChild(chip);
+      });
+      box.appendChild(row);
+    }
     $("#messages").appendChild(box);
     S.live = { box: box, text: null, raw: "", pending: false, steps: [], byId: {}, doing: null };
     showHome();
@@ -376,6 +479,7 @@
         L = live();
         if (L.byId[ev.id]) L.byId[ev.id].ok = !!ev.ok && !ev.denied;
         if (ev.name === "browser") { browserAt(L, ev.meta); if (!replay) browserFrame(L); }
+        if (ev.meta && ev.meta.file && ev.ok) fileCard(L, ev.meta.file);
         if (!replay && S.busy) setDoing(t("thinking"));
         break;
       case "approval":
@@ -534,13 +638,20 @@
 
   function send(text) {
     text = String(text || "").trim();
+    var files = S.files.slice();
+    if (!text && files.length) text = t("with_files");
     if (!text || S.busy) return;
+    if (files.length) {
+      text += FILES_MARK + files.map(function (f) { return f.path; }).join("\n");
+      S.files = [];
+      renderAttached();
+    }
     hideReplies();
     var input = $("#input");
     input.value = "";
     grow();
     // One-step requests (an alarm, a call, the torch): the phone does them itself, at once, with no model.
-    if (phone && phone.quick) {
+    if (phone && phone.quick && !files.length) {
       try {
         var r = JSON.parse(phone.quick(text) || "{}");
         if (r.handled) {
@@ -912,6 +1023,13 @@
     $("#open-settings").innerHTML = icon("gear");
     $("#sheet-close").innerHTML = icon("close");
     $("#mic").innerHTML = icon("mic");
+    $("#attach").innerHTML = icon("clip");
+    $("#attach").onclick = function () { $("#picker").click(); };
+    $("#picker").onchange = function () {
+      var picked = this.files || [];
+      for (var i = 0; i < picked.length; i++) attach(picked[i]);
+      this.value = "";
+    };
     $("#send").innerHTML = icon("send");
     $("#input").placeholder = t("placeholder");
     $("#mic").hidden = !(phone && phone.listen);
@@ -954,11 +1072,10 @@
     var d = null;
     try { d = phone && phone.takeShared ? JSON.parse(phone.takeShared() || "null") : null; } catch (_) { d = null; }
     if (!d || (!d.text && !(d.files || []).length)) return;
-    var parts = [];
-    if (d.text) parts.push(d.text);
-    if ((d.files || []).length) parts.push(d.files.join(", "));
+    (d.files || []).forEach(function (p) { S.files.push({ path: p, name: baseName(p) }); });
+    renderAttached();
     var input = $("#input");
-    input.value = parts.join("\n\n") + "\n\n";
+    if (d.text) input.value = d.text + "\n\n";
     grow();
     input.focus();
     toast(t("shared"), 4500);
