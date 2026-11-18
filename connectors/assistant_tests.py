@@ -496,6 +496,17 @@ class AssistantPageTests(_Saved):
 class AssistantProfileTests(unittest.TestCase):
     """In the app, the prompt and the tool list are an assistant's, whole, with no leftovers of the coding agent."""
 
+    def test_clawhub_workflows_select_and_combine_only_matching_tasks(self):
+        from .clawhub_catalog import task_note
+        for request, workflow in (("لخص الاجتماع", "Meeting minutes"), ("افتح تطبيق الساعة", "Android workflow"),
+                                  ("افتح موقع example.org", "Web workflow"), ("in the browser", "Web workflow")):
+            self.assertIn(workflow, task_note(request))
+        combined = task_note("Open the settings app and then open https://example.org in the browser")
+        self.assertIn("Android workflow", combined)
+        self.assertIn("Web workflow", combined)
+        self.assertEqual(task_note("What is the weather?"), "")
+        self.assertIn("clawhub_search", lean.ASSISTANT)
+
     def test_the_apps_tools_are_an_assistants(self):
         for name in ("phone", "phone_agent", "phone_routine", "browser", "browser_agent", "web_search", "my_info",
                      "learn", "scheduled_task_create"):

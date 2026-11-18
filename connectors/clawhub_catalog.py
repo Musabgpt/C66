@@ -11,14 +11,32 @@ _MEETING = re.compile(
     r"\b(?:meeting minutes|meeting summary|summari[sz]e (?:this |the )?meeting|meeting action items)\b"
     r"|(?:محضر|ملخص|تلخيص|لخص)\s+(?:(?:هذا|هذه)\s+)?(?:ال)?اجتماع", re.I)
 
+_PHONE = re.compile(
+    r"\b(?:on (?:my|the) phone|open (?:the )?(?:settings|calculator|clock) app|android settings)\b"
+    r"|(?:على (?:هاتفي|الهاتف|الجوال)|افتح (?:تطبيق|إعدادات|اعدادات|الحاسبة|الآلة الحاسبة))", re.I)
+_WEB = re.compile(
+    r"https?://|\b(?:in (?:your|the) browser|open (?:the )?website|browse to)\b"
+    r"|(?:بالمتصفح|في المتصفح|افتح (?:موقع|صفحة|رابط))", re.I)
+
 
 def task_note(text):
+    notes = []
     if _MEETING.search(text):
-        return ("Meeting minutes workflow: summarize the supplied notes in the user's language. "
+        notes.append("Meeting minutes workflow: summarize the supplied notes in the user's language. "
                 "Separate decisions from proposals. For action items give the owner, deadline and "
                 "supporting passage where available. Mark missing owners or dates as unspecified. "
                 "List unresolved questions. If no notes are available, ask for them.")
-    return ""
+    if _PHONE.search(text):
+        # Local Android implementation of pelae1/mobilerun-official 1.2.0 (MIT-0).
+        notes.append("Android workflow: use phone to open the requested app, inspect the returned UI tree, "
+                     "and act on controls visible in that observation. After navigation use the new screen's "
+                     "labels and IDs. Use screen_look for visual content. Verify the requested result on screen.")
+    if _WEB.search(text):
+        # Local browser implementation of tinyfish/tinyfish 1.0.6 (MIT-0).
+        notes.append("Web workflow: use web_search to locate an unknown site. For a supplied URL use web_fetch "
+                     "to read static text, or browser to open it when the user asks to browse or interact. "
+                     "Use returned controls for navigation and read the resulting page before reporting the result.")
+    return "\n".join(notes)
 
 
 @tools.tool("clawhub_search", "Find public OpenClaw skills by topic. Use generic keywords without private user data. Returns catalog identifiers only.",
