@@ -44,6 +44,8 @@ def _displayed(screen, expected):
         field = _DISPLAY.match(label)
         if field:
             label = label[field.end():]
+        elif label.endswith((" نتيجة الحساب", " calculation result")):
+            label = label.rsplit(" ", 2)[0]
         elif "field" not in line.rpartition(" · ")[2].split(", "):
             continue
         label = label.replace("٬", ",").strip()

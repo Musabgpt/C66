@@ -28,6 +28,9 @@ class CalculatorAppTests(unittest.TestCase):
         self.assertEqual([c[1] for c in calls[1:]], [
             {"text": key, "exact_package": calc.PACKAGE} for key in "C37×19="])
 
+    def test_samsung_arabic_result_suffix(self):
+        self.assertEqual(calc._displayed("[4] 703 نتيجة الحساب · text", 703), "703")
+
     def test_keypad_number_is_not_the_result(self):
         with patch.object(calc.phone, "call", return_value={"screen": self.screen("42")}):
             with self.assertRaisesRegex(tools.ToolError, "verified"):
