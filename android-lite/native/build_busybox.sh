@@ -69,9 +69,9 @@ PY
     EXTRA_LDFLAGS="-pie -Wl,-z,max-page-size=16384"
   FILE="$OUT/busybox"
   [[ -s "$FILE" ]] || { echo "No BusyBox binary for $abi" >&2; exit 1; }
-  "$TOOLS/llvm-readelf" -h "$FILE" | grep -q 'Type:.*DYN'
-  "$TOOLS/llvm-readelf" -h "$FILE" | grep -q "$machine"
-  "$TOOLS/llvm-readelf" -l "$FILE" | grep -q '/system/bin/linker64'
+  "$TOOLS/llvm-readelf" -h "$FILE" | grep 'Type:.*DYN' >/dev/null
+  "$TOOLS/llvm-readelf" -h "$FILE" | grep "$machine" >/dev/null
+  "$TOOLS/llvm-readelf" -l "$FILE" | grep '/system/bin/linker64' >/dev/null
   DEST="$ROOT/android-lite/app/src/main/jniLibs/$abi"
   mkdir -p "$DEST"
   "$TOOLS/llvm-strip" --strip-unneeded -o "$DEST/libbusybox.so" "$FILE"
