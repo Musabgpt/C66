@@ -443,6 +443,13 @@ public class MainActivity extends Activity {
         }
     }
 
+    void askAboutBrowserPage(String url) {
+        if (web != null) {
+            web.evaluateJavascript("window.onBrowserQuestion && window.onBrowserQuestion("
+                    + org.json.JSONObject.quote(url) + ")", null);
+        }
+    }
+
     @Override
     public void onBackPressed() {
         if (InAppBrowser.back(this)) {

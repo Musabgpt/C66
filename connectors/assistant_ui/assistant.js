@@ -39,6 +39,7 @@
       bubble: "الزر العائم", bubble_sub: "المساعد فوق أي تطبيق",
       language: "اللغة", lang_auto: "لغة الهاتف", skills: "المهام التي أتقنها",
       browsing: "متصفّح المساعد", take_over: "اضغط لتتولّى التصفح بنفسك",
+      d_calculator: "استخدام الحاسبة", d_catalog: "البحث في سجل المهارات", d_workflow: "قراءة مهارة محلية",
       ask_page: "اسأل عن الصفحة", page_question: "بخصوص هذه الصفحة", page_unavailable: "تعذّر فتح الصفحة في المتصفح المدمج.",
       learned: "تعلّمت", lessons: "ما تعلّمته", lessons_sub: "دروس يحفظها من عمله ومن تصحيحاتك", no_lessons: "لم يتعلّم شيئاً بعد. يحفظ درساً بعد كل مهمة تعثّرت، وحين تصحّحه.",
       saved: "حُفظ", offline: "تعذّر الاتصال بالمساعد. أعد فتح التطبيق.",
@@ -86,6 +87,7 @@
       bubble: "Floating button", bubble_sub: "The assistant over any app",
       language: "Language", lang_auto: "The phone's", skills: "Tasks I know by heart",
       browsing: "The assistant's browser", take_over: "Tap to take over",
+      d_calculator: "Using the calculator", d_catalog: "Checking the skill catalog", d_workflow: "Reading a local skill",
       ask_page: "Ask about page", page_question: "About this page", page_unavailable: "This page could not be opened in the built-in browser.",
       learned: "Learned", lessons: "What I have learned", lessons_sub: "Lessons it keeps from its own work and your corrections", no_lessons: "Nothing learned yet. It keeps a lesson after a task that stumbled, and when you correct it.",
       saved: "Saved", offline: "The assistant is not answering. Open the app again.",
@@ -198,6 +200,7 @@
       return t(steps[op] || "d_read");
     }
     var plain = {
+      calculator_app: "d_calculator", clawhub_search: "d_catalog", clawhub_browse: "d_catalog", clawhub_workflow: "d_workflow",
       file_create: "d_file", file_read: "d_file_read", file_list: "d_files", gmail_reply: "d_send_mail",
       phone_sequence: "d_steps", phone_routine: "d_routine", phone_agent: "d_agent", screen_look: "d_look",
       browser_agent: "d_web_agent", web_search: "d_search", web_fetch: "d_fetch", weather: "d_weather",
@@ -235,14 +238,7 @@
     var ask = el("button", "browser-ask", t("ask_page"));
     ask.type = "button";
     ask.hidden = true;
-    ask.onclick = function () {
-      var input = $("#input");
-      var url = L.browser.url;
-      if (!url) return;
-      input.value = input.value ? input.value + " " + url : t("page_question") + " " + url + " ";
-      grow();
-      input.focus();
-    };
+    ask.onclick = function () { window.onBrowserQuestion(L.browser.url); };
     card.appendChild(ask);
     if (phone && phone.showBrowser) {
       var open = el("button", "browser-open", t("take_over"));
@@ -315,6 +311,13 @@
     }).catch(function () {});
   }
   window.onPhoneBrowser = function () { browserRenew(true); };
+  window.onBrowserQuestion = function (url) {
+    if (!/^https?:\/\//i.test(url || "")) return;
+    var input = $("#input");
+    input.value = input.value ? input.value + " " + url + " " : t("page_question") + " " + url + " ";
+    grow();
+    input.focus();
+  };
 
   // ------------------------------------------------------------------ the conversation
   function showHome() { $("#home").hidden = $("#messages").children.length > 0; }

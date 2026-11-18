@@ -30,7 +30,7 @@ LEAN_ASSISTANT = '''
 ASSISTANT = (
     "phone", "screen_look", "phone_routine", "phone_sequence", "phone_agent",
     "browser", "browser_agent",
-    "web_search", "web_fetch", "weather", "clawhub_search",
+    "web_search", "web_fetch", "weather", "clawhub_search", "clawhub_browse", "clawhub_workflow", "calculator_app",
     "my_info", "learn",
     "file_create", "file_read", "file_list",
     "scheduled_task_create", "scheduled_task_list", "scheduled_task_pause",
@@ -90,6 +90,8 @@ SMALL_ASSISTANT = (MARKER + "\\n\\nYou are MusabAI, the user's personal assistan
                    "they ask with your tools, then reply.\\n\\nRules:\\n"
                    "- Act right away with the phone tool: open_app, read the numbered screen it returns, tap by "
                    "number, type after tapping a field.\\n"
+                   "- For arithmetic explicitly requested in the calculator app, use calculator_app. Use "
+                   "clawhub_workflow for matching local workflows.\\n"
                    "- New messages: phone notifications_read; answer with notification_reply.\\n"
                    "- Before sending, posting or submitting something the user did not word themselves, show it "
                    "and ask. Never pay or enter passwords.\\n"
@@ -127,11 +129,15 @@ def apply(src, package, replace):
         shutil.copyfile(src / name, package / name)
 
     # 1) The prompt, whole, in its own file: the app's engine reads it, the developer profile stays for the rest.
-    shutil.copyfile(src / "clawhub_catalog.py", package / "clawhub_catalog.py")
+    for name in ("clawhub_catalog.py", "clawhub_browse.py", "calculator_app.py", "clawhub_browse_tests.py", "calculator_app_tests.py"):
+        shutil.copyfile(src / name, package / name)
     replace(package / "tools.py", "from . import weather as _weather",
-            "from . import clawhub_catalog  # noqa: F401 - registers catalog search\nfrom . import weather as _weather")
+            "from . import calculator_app, clawhub_browse, clawhub_catalog  # noqa: F401 - register tools\n"
+            "from . import weather as _weather")
     replace(package / "tools.py", 'names += ["web_search", "web_fetch", "weather"]',
-            'names += ["web_search", "web_fetch", "weather", "clawhub_search"]')
+            'names += ["web_search", "web_fetch", "weather", "clawhub_search", "clawhub_browse"]')
+    replace(package / "tools.py", '    names.append("code_check")\n',
+            '    names.extend(["code_check", "clawhub_workflow"])\n')
     shutil.copyfile(src / "assistant_prompt.md", package / "agent_prompt_assistant.md")
 
     # 2) The tools an assistant has.
@@ -152,7 +158,7 @@ def apply(src, package, replace):
         _must(text, listed, "tools.py phone tools")
         text = text.replace(imported, imported
                             + "from . import assistant as _assistant  # noqa: F401 - registers my_info\n", 1)
-        text = text.replace(listed, listed.rstrip("\n") + " + _assistant.NAMES\n", 1)
+        text = text.replace(listed, listed.rstrip("\n") + ' + _assistant.NAMES + ["calculator_app"]\n', 1)
         tools_py.write_text(text, encoding="utf-8")
 
     replace(package / "claude_parity.py",
@@ -270,7 +276,7 @@ def apply(src, package, replace):
                             "    else:\n"
                             "        text = SMALL.format(steps=steps) if local else profile()\n", 1)
     policy.write_text(text, encoding="utf-8")
-    replace(policy, "MARKER = 'MusabAI behavior profile v17'", "MARKER = 'MusabAI behavior profile v19'")
+    replace(policy, "MARKER = 'MusabAI behavior profile v17'", "MARKER = 'MusabAI behavior profile v20'")
 
     # 6) The page: one screen. The developer interface's layers are no longer loaded (and are left out of the
     # app's package, see package_baseline.py).

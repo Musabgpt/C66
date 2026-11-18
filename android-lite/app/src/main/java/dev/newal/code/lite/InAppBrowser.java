@@ -1211,6 +1211,18 @@ final class InAppBrowser {
                 ViewGroup.LayoutParams.WRAP_CONTENT));
         b.web.setVisibility(View.VISIBLE);
         box.addView(b.web, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        if (a instanceof MainActivity) {
+            Button ask = new Button(a);
+            ask.setText(arabic ? "اسأل عن هذه الصفحة" : "Ask about this page");
+            ask.setOnClickListener(v -> {
+                String current = b.web == null ? null : b.web.getUrl();
+                if (current == null || !(current.startsWith("https://") || current.startsWith("http://"))) return;
+                b.hide();
+                ((MainActivity) a).askAboutBrowserPage(current);
+            });
+            box.addView(ask, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT));
+        }
         b.host.addView(box, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT));
         b.panel = box;

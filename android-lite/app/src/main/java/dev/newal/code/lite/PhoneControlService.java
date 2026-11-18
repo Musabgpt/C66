@@ -294,6 +294,9 @@ public class PhoneControlService extends AccessibilityService {
     // ------------------------------------------------------------------------------------------------ acting
 
     synchronized JSONObject tap(JSONObject a) throws Exception {
+        if (a.has("exact_package")) {
+            return tapExactLabel(a.getString("exact_package"), a.getString("text"));
+        }
         if (a.has("x") && a.has("y")) {
             gesture(a.optInt("x"), a.optInt("y"), a.optInt("x"), a.optInt("y"), 60);
             return settle("tapped at " + a.optInt("x") + "," + a.optInt("y"));
@@ -335,6 +338,26 @@ public class PhoneControlService extends AccessibilityService {
         Rect r = places.get(idx);
         gesture(r.centerX(), r.centerY(), r.centerX(), r.centerY(), 60);
         return settle("tapped " + what + " (at " + r.centerX() + "," + r.centerY() + ")");
+    }
+
+    /** Named controls in a known app, checked again immediately before the accessibility click. */
+    private JSONObject tapExactLabel(String pkg, String label) throws Exception {
+        if (pkg.isEmpty() || label.isEmpty()) throw new IllegalArgumentException("missing app or button label");
+        screen();
+        AccessibilityNodeInfo match = null;
+        for (AccessibilityNodeInfo n : items) {
+            if (!pkg.contentEquals(n.getPackageName() == null ? "" : n.getPackageName()) || !label.equals(words(n))) continue;
+            AccessibilityNodeInfo button = clickableParent(n);
+            if (button == null || !button.isEnabled() || button.isEditable()) continue;
+            if (match != null && !match.equals(button)) throw new IllegalStateException("ambiguous button: " + label);
+            match = button;
+        }
+        if (match == null || !match.refresh() || !match.isVisibleToUser() || !match.isEnabled()
+                || !pkg.equals(String.valueOf(root().getPackageName()))
+                || !match.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+            throw new IllegalStateException("named button unavailable in " + pkg + ": " + label);
+        }
+        return settle("tapped " + label);
     }
 
     synchronized JSONObject type(JSONObject a) throws Exception {

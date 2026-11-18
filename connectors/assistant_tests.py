@@ -10,6 +10,8 @@ from types import SimpleNamespace
 from unittest import mock
 
 from . import agent_policy, assistant, lean, permissions, tools
+from .calculator_app_tests import CalculatorAppTests  # noqa: F401 - CI suite
+from .clawhub_browse_tests import ClawHubBrowseTests  # noqa: F401 - CI suite
 
 UI = Path(__file__).with_name("ui")
 
