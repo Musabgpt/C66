@@ -39,6 +39,7 @@
       bubble: "الزر العائم", bubble_sub: "المساعد فوق أي تطبيق",
       language: "اللغة", lang_auto: "لغة الهاتف", skills: "المهام التي أتقنها",
       browsing: "متصفّح المساعد", take_over: "اضغط لتتولّى التصفح بنفسك",
+      ask_page: "اسأل عن الصفحة", page_question: "بخصوص هذه الصفحة", page_unavailable: "تعذّر فتح الصفحة في المتصفح المدمج.",
       learned: "تعلّمت", lessons: "ما تعلّمته", lessons_sub: "دروس يحفظها من عمله ومن تصحيحاتك", no_lessons: "لم يتعلّم شيئاً بعد. يحفظ درساً بعد كل مهمة تعثّرت، وحين تصحّحه.",
       saved: "حُفظ", offline: "تعذّر الاتصال بالمساعد. أعد فتح التطبيق.",
       termux_wait: "يجري الإعداد في Termux… تابع الخطوات هناك.", termux_paste: "أول مرة فقط: في Termux الصق الأمر واضغط Enter.",
@@ -85,6 +86,7 @@
       bubble: "Floating button", bubble_sub: "The assistant over any app",
       language: "Language", lang_auto: "The phone's", skills: "Tasks I know by heart",
       browsing: "The assistant's browser", take_over: "Tap to take over",
+      ask_page: "Ask about page", page_question: "About this page", page_unavailable: "This page could not be opened in the built-in browser.",
       learned: "Learned", lessons: "What I have learned", lessons_sub: "Lessons it keeps from its own work and your corrections", no_lessons: "Nothing learned yet. It keeps a lesson after a task that stumbled, and when you correct it.",
       saved: "Saved", offline: "The assistant is not answering. Open the app again.",
       termux_wait: "Setting up in Termux… follow the steps there.", termux_paste: "First time only: paste the command in Termux and press Enter.",
@@ -228,22 +230,44 @@
     img.alt = "";
     screen.appendChild(img);
     card.appendChild(screen);
+    var pages = el("div", "browser-pages");
+    card.appendChild(pages);
+    var ask = el("button", "browser-ask", t("ask_page"));
+    ask.type = "button";
+    ask.hidden = true;
+    ask.onclick = function () {
+      var input = $("#input");
+      var url = L.browser.url;
+      if (!url) return;
+      input.value = input.value ? input.value + " " + url : t("page_question") + " " + url + " ";
+      grow();
+      input.focus();
+    };
+    card.appendChild(ask);
     if (phone && phone.showBrowser) {
-      card.title = t("take_over");
-      card.onclick = function () { phone.showBrowser(); };
+      var open = el("button", "browser-open", t("take_over"));
+      open.type = "button";
+      open.onclick = function () {
+        browserLast = L;
+        if (L.browser.url && phone.openBrowserPage) openBrowserPage(L.browser.url);
+        else phone.showBrowser();
+      };
+      card.appendChild(open);
     }
     L.box.appendChild(card);
-    L.browser = { card: card, where: where, img: img, screen: screen };
+    L.browser = { card: card, where: where, img: img, screen: screen, pages: pages, ask: ask, links: new Map() };
     return L.browser;
   }
   function browserFrame(L) {
-    if (!L || !L.browser) return;
+    if (!L || !L.browser || L.browser.fetching || !document.body.contains(L.browser.card)) return;
+    L.browser.fetching = true;
     var next = new Image();
+    next.onerror = function () { L.browser.fetching = false; };
     next.onload = function () {
-      if (!next.width) return;
+      L.browser.fetching = false;
+      if (!next.width || browserLast !== L || !document.body.contains(L.browser.card)) return;
       L.browser.img.src = next.src;
       L.browser.screen.classList.add("on");
-      scrollDown();
     };
     next.src = "/api/assistant/browser?shot=1&t=" + Date.now();
   }
@@ -257,11 +281,26 @@
       browserFrame(L);
     }, 1500);
   }
-  function browserAt(L, meta) {
+  function browserAt(L, meta, visited) {
     if (!L || !L.browser || !meta) return;
     var text = meta.title || meta.url || "";
     if (text) L.browser.where.textContent = text;
-    if (meta.url) L.browser.url = meta.url;
+    if (!/^https?:\/\//i.test(meta.url || "")) return;
+    L.browser.url = meta.url;
+    if (!visited) return;
+    L.browser.ask.hidden = false;
+    var link = L.browser.links.get(meta.url);
+    if (!link) {
+      link = el("a");
+      link.href = meta.url;
+      link.dir = "auto";
+      L.browser.pages.appendChild(link);
+      L.browser.links.set(meta.url, link);
+    }
+    link.textContent = meta.title ? meta.title + " · " + link.hostname : link.hostname + link.pathname;
+  }
+  function openBrowserPage(url) {
+    if (!phone.openBrowserPage(url)) toast(t("page_unavailable"));
   }
   // The conversation is looked at again (the app came back, or the user gave the browser back): the last
   // window shows what the browser is on now. After a take-over the page may be another one; otherwise the
@@ -271,7 +310,7 @@
     if (!L || !L.browser || !document.body.contains(L.browser.card)) return;
     api("/api/assistant/browser").then(function (now) {
       if (!now || !now.url) return;
-      if (moved) browserAt(L, now);
+      if (moved) browserAt(L, now, true);
       if (moved || now.url === L.browser.url) browserFrame(L);
     }).catch(function () {});
   }
@@ -478,7 +517,7 @@
       case "tool_end":
         L = live();
         if (L.byId[ev.id]) L.byId[ev.id].ok = !!ev.ok && !ev.denied;
-        if (ev.name === "browser") { browserAt(L, ev.meta); if (!replay) browserFrame(L); }
+        if (ev.name === "browser") { browserAt(L, ev.meta, ev.ok && !ev.denied); if (!replay) browserFrame(L); }
         if (ev.meta && ev.meta.file && ev.ok) fileCard(L, ev.meta.file);
         if (!replay && S.busy) setDoing(t("thinking"));
         break;
@@ -1049,10 +1088,16 @@
       e.preventDefault();
       if (S.busy) stop(); else send($("#input").value);
     });
-    // A link in an answer opens in the phone's browser, never inside this page.
+    // Open public sources in the same native browser the assistant can read on the next turn.
     $("#messages").addEventListener("click", function (e) {
       var a = e.target.closest ? e.target.closest("a[href]") : null;
       if (!a) return;
+      if (phone && phone.openBrowserPage && /^https?:\/\//i.test(a.href)) {
+        e.preventDefault();
+        browserLast = null;
+        openBrowserPage(a.href);
+        return;
+      }
       if (phone && phone.openUrl) { e.preventDefault(); phone.openUrl(a.href); }
     });
     document.addEventListener("visibilitychange", function () {

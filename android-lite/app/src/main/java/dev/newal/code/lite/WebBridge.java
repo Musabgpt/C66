@@ -215,6 +215,11 @@ final class WebBridge {
     }
 
     @JavascriptInterface
+    public boolean openBrowserPage(String url) {
+        return InAppBrowser.openFromChat(act, url);
+    }
+
+    @JavascriptInterface
     public void openAccessibilitySettings() {
         act.runOnUiThread(() -> {
             act.startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));

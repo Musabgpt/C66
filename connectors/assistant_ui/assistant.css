@@ -137,6 +137,8 @@ button { cursor: pointer; border: 0; background: none; padding: 0; }
 .browser-screen { height: 0; background: #fff; overflow: hidden; }
 .browser-screen.on { height: auto; max-height: 300px; }
 .browser-screen img { display: block; width: 100%; height: auto; }
+.browser-pages a { display: block; padding: 8px 10px; overflow-wrap: anywhere; color: var(--accent); }
+.browser-ask, .browser-open { min-height: 44px; padding: 6px 10px; background: var(--surface); color: var(--accent); border: 0; font: inherit; font-size: 13px; }
 
 .notice { align-self: stretch; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 9px 12px; font-size: 14.5px; color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }
 .notice.error { color: var(--danger); border-color: var(--danger); }

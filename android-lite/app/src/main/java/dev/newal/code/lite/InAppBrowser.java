@@ -94,6 +94,8 @@ final class InAppBrowser {
     private FrameLayout host;                   // the activity's root while there is one
     private Activity activity;
     private LinearLayout panel;                 // the browser brought to the front for the user
+    private TextView addressLabel;
+    private Button previousPage, nextPage;
     private VirtualDisplay screen;              // its own screen: needs no activity and shows nothing on the phone's
     private ImageReader frames;                 // where that screen is drawn (drained: nobody watches it)
     private HandlerThread drain;
@@ -465,6 +467,7 @@ final class InAppBrowser {
             shownAt = 0;
             loads++;
             url = u == null ? "" : u;
+            refreshBar();
         }
 
         @Override
@@ -472,6 +475,7 @@ final class InAppBrowser {
             loading = false;
             url = view.getUrl() == null ? "" : view.getUrl();
             title = view.getTitle() == null ? "" : view.getTitle();
+            refreshBar();
             finished.countDown();
         }
 
@@ -1139,6 +1143,30 @@ final class InAppBrowser {
 
     // ------------------------------------------------------------------------------------- in front, for the user
 
+    private void refreshBar() {
+        if (addressLabel == null || web == null) return;
+        String domain = Uri.parse(url).getHost();
+        addressLabel.setText(domain == null ? "" : domain);
+        previousPage.setEnabled(web.canGoBack());
+        nextPage.setEnabled(web.canGoForward());
+    }
+
+    /** Called by the chat's JavaScript bridge thread. DNS validation stays off the UI thread. */
+    static boolean openFromChat(Activity a, String address) {
+        if (address == null || address.length() > 8192) return false;
+        Uri uri = Uri.parse(address);
+        if (!("https".equalsIgnoreCase(uri.getScheme()) || "http".equalsIgnoreCase(uri.getScheme()))
+                || uri.getUserInfo() != null) return false;
+        InAppBrowser b = get(a);
+        if (!b.allowed(uri)) return false;
+        a.runOnUiThread(() -> {
+            if (a.isFinishing() || a.isDestroyed() || b.activity != a) return;
+            show(a);
+            if (b.web != null && !address.equals(b.web.getUrl())) b.web.loadUrl(address);
+        });
+        return true;
+    }
+
     /** The user takes over (a sign-in, a check): the same browser, in front of the conversation, until Done. */
     static void show(Activity a) {
         InAppBrowser b = get(a);
@@ -1160,7 +1188,19 @@ final class InAppBrowser {
         TextView where = new TextView(a);
         where.setTextColor(Color.WHITE);
         where.setSingleLine(true);
-        where.setText(b.title.isEmpty() ? b.url : b.title);
+        boolean arabic = Locale.getDefault().getLanguage().equals("ar");
+        b.previousPage = new Button(a);
+        b.previousPage.setText("‹");
+        b.previousPage.setContentDescription(arabic ? "الصفحة السابقة" : "Previous page");
+        b.previousPage.setOnClickListener(v -> { if (b.web.canGoBack()) b.web.goBack(); });
+        bar.addView(b.previousPage, new LinearLayout.LayoutParams(b.px(48), b.px(48)));
+        b.nextPage = new Button(a);
+        b.nextPage.setText("›");
+        b.nextPage.setContentDescription(arabic ? "الصفحة التالية" : "Next page");
+        b.nextPage.setOnClickListener(v -> { if (b.web.canGoForward()) b.web.goForward(); });
+        bar.addView(b.nextPage, new LinearLayout.LayoutParams(b.px(48), b.px(48)));
+        b.addressLabel = where;
+        b.refreshBar();
         bar.addView(where, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         Button done = new Button(a);
         done.setText(Locale.getDefault().getLanguage().equals("ar") ? "تم" : "Done");
@@ -1194,6 +1234,9 @@ final class InAppBrowser {
         }
         LinearLayout box = panel;
         panel = null;
+        addressLabel = null;
+        previousPage = null;
+        nextPage = null;
         if (web != null && web.getParent() == box) {
             box.removeView(web);
         }
