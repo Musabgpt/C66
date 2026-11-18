@@ -318,6 +318,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onPause() {
+        InAppBrowser.pauseVoice(this);
         readiness.pause();
         super.onPause();
         Access.paused();
@@ -448,6 +449,11 @@ public class MainActivity extends Activity {
             web.evaluateJavascript("window.onBrowserQuestion && window.onBrowserQuestion("
                     + org.json.JSONObject.quote(url) + ")", null);
         }
+    }
+
+    void browserVoiceQuestion(String id, String words, org.json.JSONObject page) {
+        if (web != null) web.evaluateJavascript("window.browserVoiceQuestion && window.browserVoiceQuestion("
+                + org.json.JSONObject.quote(id) + "," + org.json.JSONObject.quote(words) + "," + page + ")", null);
     }
 
     @Override

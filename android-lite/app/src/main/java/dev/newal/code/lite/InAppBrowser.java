@@ -95,6 +95,17 @@ final class InAppBrowser {
     private Activity activity;
     private LinearLayout panel;                 // the browser brought to the front for the user
     private TextView addressLabel;
+    private BrowserConversation conversation;
+
+    static void pauseVoice(Activity a) {
+        InAppBrowser b = get(a);
+        if (b.activity == a && b.conversation != null) b.conversation.stop();
+    }
+
+    static void voiceAnswer(Activity a, String id, String answer) {
+        InAppBrowser b = get(a);
+        if (b.activity == a && b.conversation != null) b.conversation.answer(id, answer);
+    }
     private Button previousPage, nextPage;
     private VirtualDisplay screen;              // its own screen: needs no activity and shows nothing on the phone's
     private ImageReader frames;                 // where that screen is drawn (drained: nobody watches it)
@@ -1212,6 +1223,10 @@ final class InAppBrowser {
         b.web.setVisibility(View.VISIBLE);
         box.addView(b.web, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
         if (a instanceof MainActivity) {
+            Button voice = new Button(a);
+            b.conversation = new BrowserConversation((MainActivity) a, b.web, voice);
+            box.addView(voice, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT));
             Button ask = new Button(a);
             ask.setText(arabic ? "اسأل عن هذه الصفحة" : "Ask about this page");
             ask.setOnClickListener(v -> {
@@ -1245,6 +1260,7 @@ final class InAppBrowser {
             return;
         }
         LinearLayout box = panel;
+        if (conversation != null) { conversation.stop(); conversation = null; }
         panel = null;
         addressLabel = null;
         previousPage = null;

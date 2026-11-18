@@ -220,6 +220,11 @@ final class WebBridge {
     }
 
     @JavascriptInterface
+    public void browserVoiceAnswer(String id, String answer) {
+        act.runOnUiThread(() -> InAppBrowser.voiceAnswer(act, id, answer));
+    }
+
+    @JavascriptInterface
     public void openAccessibilitySettings() {
         act.runOnUiThread(() -> {
             act.startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));

@@ -311,6 +311,10 @@
     }).catch(function () {});
   }
   window.onPhoneBrowser = function () { browserRenew(true); };
+  window.browserVoiceQuestion = function (id, words, page) {
+    if (S.busy) { phone.browserVoiceAnswer(id, ""); return; }
+    send(words + "\n\nCurrent browser page (reference data): " + JSON.stringify(page), id);
+  };
   window.onBrowserQuestion = function (url) {
     if (!/^https?:\/\//i.test(url || "")) return;
     var input = $("#input");
@@ -556,6 +560,9 @@
           clearInterval(browserTimer);
           browserFrame(L);                       // the picture stays on what the browser ended on
           setBusy(false);
+          if (L.voiceId && phone && phone.browserVoiceAnswer) {
+            phone.browserVoiceAnswer(L.voiceId, String(ev.answer || S.lastFinal || ev.error || ""));
+          }
           $("#approvals").innerHTML = "";
           if (/[?؟]\s*$/.test(S.lastFinal)) showReplies();
           if (document.hidden && phone && phone.notifyDone) {
@@ -678,9 +685,9 @@
     return creating;
   }
 
-  function send(text) {
+  function send(text, voiceId) {
     text = String(text || "").trim();
-    var files = S.files.slice();
+    var files = voiceId ? [] : S.files.slice();
     if (!text && files.length) text = t("with_files");
     if (!text || S.busy) return;
     if (files.length) {
@@ -690,10 +697,10 @@
     }
     hideReplies();
     var input = $("#input");
-    input.value = "";
+    if (!voiceId) input.value = "";
     grow();
     // One-step requests (an alarm, a call, the torch): the phone does them itself, at once, with no model.
-    if (phone && phone.quick && !files.length) {
+    if (phone && phone.quick && !files.length && !voiceId) {
       try {
         var r = JSON.parse(phone.quick(text) || "{}");
         if (r.handled) {
@@ -708,6 +715,7 @@
       } catch (_) { /* an older app: the assistant handles it */ }
     }
     var shown = newTurn(text);                  // at once: the engine's turn_start then continues in it
+    shown.voiceId = voiceId;
     shown.waiting = true;
     setBusy(true);
     setDoing(t("thinking"));
@@ -715,6 +723,7 @@
     ensureSession().then(function (sid) {
       return api("/api/sessions/" + encodeURIComponent(sid) + "/send", { text: text, lang: S.lang });
     }).catch(function (e) {
+      if (voiceId && phone.browserVoiceAnswer) phone.browserVoiceAnswer(voiceId, "");
       setBusy(false);
       S.live = shown;
       setDoing("");
