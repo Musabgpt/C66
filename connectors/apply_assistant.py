@@ -30,7 +30,7 @@ LEAN_ASSISTANT = '''
 ASSISTANT = (
     "phone", "screen_look", "phone_routine", "phone_sequence", "phone_agent",
     "browser", "browser_agent",
-    "web_search", "web_fetch", "weather",
+    "web_search", "web_fetch", "weather", "clawhub_search",
     "my_info", "learn",
     "file_create", "file_read", "file_list",
     "scheduled_task_create", "scheduled_task_list", "scheduled_task_pause",
@@ -127,6 +127,11 @@ def apply(src, package, replace):
         shutil.copyfile(src / name, package / name)
 
     # 1) The prompt, whole, in its own file: the app's engine reads it, the developer profile stays for the rest.
+    shutil.copyfile(src / "clawhub_catalog.py", package / "clawhub_catalog.py")
+    replace(package / "tools.py", "from . import weather as _weather",
+            "from . import clawhub_catalog  # noqa: F401 - registers catalog search\nfrom . import weather as _weather")
+    replace(package / "tools.py", 'names += ["web_search", "web_fetch", "weather"]',
+            'names += ["web_search", "web_fetch", "weather", "clawhub_search"]')
     shutil.copyfile(src / "assistant_prompt.md", package / "agent_prompt_assistant.md")
 
     # 2) The tools an assistant has.
@@ -223,6 +228,10 @@ def apply(src, package, replace):
                             "                from . import assistant\n"
                             "                learned = assistant.lessons_note(self.memory, text)\n"
                             "                language = assistant.language_note(text)\n"
+                            "                from . import clawhub_catalog\n"
+                            "                workflow = clawhub_catalog.task_note(text)\n"
+                            "                if workflow:\n"
+                            "                    parts.append(workflow)\n"
                             "                learned = (learned + \"\\n\\n\" + language).strip() if language else learned\n"
                             "        else:\n"
                             "            learned, _ = tools.memory_context(self.memory, text, 4)\n", 1)
@@ -261,7 +270,7 @@ def apply(src, package, replace):
                             "    else:\n"
                             "        text = SMALL.format(steps=steps) if local else profile()\n", 1)
     policy.write_text(text, encoding="utf-8")
-    replace(policy, "MARKER = 'MusabAI behavior profile v17'", "MARKER = 'MusabAI behavior profile v18'")
+    replace(policy, "MARKER = 'MusabAI behavior profile v17'", "MARKER = 'MusabAI behavior profile v19'")
 
     # 6) The page: one screen. The developer interface's layers are no longer loaded (and are left out of the
     # app's package, see package_baseline.py).
