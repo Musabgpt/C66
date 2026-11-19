@@ -2,6 +2,7 @@
 import operator
 import re
 import threading
+import time
 from decimal import Decimal
 
 from . import phone, phone_fast, tools
@@ -84,6 +85,19 @@ def calculate(ctx, expression):
                 raise tools.ToolError("Calculator key %r was not visible" % key)
             screen = _screen(phone.call("tap", text=label, exact_package=PACKAGE))
         shown = _displayed(screen, expected)
+        for attempt in range(4):
+            if shown is not None:
+                break
+            if attempt:
+                time.sleep(0.3)
+            observed = phone.call("screen")
+            fresh = observed.get("text", "")
+            if phone_fast.foreground(fresh) != PACKAGE:
+                break
+            # Native IDs restrict these values to the formula and result displays, excluding keypad digits.
+            fields = observed.get("calculator_display") or []
+            lines = ["[1] " + value + " · field" for value in fields if isinstance(value, str)]
+            shown = _displayed("\n".join([fresh] + lines), expected)
         if shown is None:
             raise tools.ToolError("The result could not be verified on Samsung Calculator's display.")
         return "Samsung Calculator shows " + shown, {"displayed": shown, "expression": expression}

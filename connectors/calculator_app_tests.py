@@ -31,6 +31,14 @@ class CalculatorAppTests(unittest.TestCase):
     def test_samsung_arabic_result_suffix(self):
         self.assertEqual(calc._displayed("[4] 703 نتيجة الحساب · text", 703), "703")
 
+    def test_fresh_display_by_native_id_after_equals(self):
+        def call(action, **args):
+            if action == "screen":
+                return {"text": self.screen(), "calculator_display": ["18"]}
+            return {"screen": self.screen()}
+        with patch.object(calc.phone, "call", side_effect=call):
+            self.assertEqual(calc.calculate(None, "12+6")[1]["displayed"], "18")
+
     def test_keypad_number_is_not_the_result(self):
         with patch.object(calc.phone, "call", return_value={"screen": self.screen("42")}):
             with self.assertRaisesRegex(tools.ToolError, "verified"):

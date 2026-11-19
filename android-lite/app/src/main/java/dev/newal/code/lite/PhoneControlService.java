@@ -119,6 +119,18 @@ public class PhoneControlService extends AccessibilityService {
         }
         JSONObject o = Phone.ok(sb.toString().trim());
         o.put("items", items.size());
+        if ("com.sec.android.app.popupcalculator".contentEquals(pkg == null ? "" : pkg)) {
+            org.json.JSONArray values = new org.json.JSONArray();
+            for (String id : new String[]{"calc_edt_formula", "calc_tv_result"}) {
+                for (AccessibilityNodeInfo field : root.findAccessibilityNodeInfosByViewId(pkg + ":id/" + id)) {
+                    if (field.isVisibleToUser()) {
+                        if (field.getText() != null) values.put(field.getText().toString());
+                        if (field.getContentDescription() != null) values.put(field.getContentDescription().toString());
+                    }
+                }
+            }
+            o.put("calculator_display", values);
+        }
         return o;
     }
 

@@ -49,7 +49,13 @@ final class BrowserConversation implements RecognitionListener {
         toggle.setText(active ? (ar ? "إيقاف الصوت" : "Stop voice") : (ar ? "تحدث عن الصفحة" : "Talk about page"));
     }
 
+    private void state(String en, String arabic) {
+        if (active) toggle.setText(ar ? arabic + " · إيقاف" : en + " · Stop");
+        android.util.Log.i("MusabPageVoice", en);
+    }
+
     private void fail(String en, String arabic) {
+        android.util.Log.i("MusabPageVoice", en);
         Toast.makeText(activity, ar ? arabic : en, Toast.LENGTH_LONG).show();
         stop();
     }
@@ -98,10 +104,15 @@ final class BrowserConversation implements RecognitionListener {
                 return;
             }
             speaker.setOnUtteranceProgressListener(new UtteranceProgressListener() {
-                public void onStart(String id) {}
+                public void onStart(String id) { main.post(() -> {
+                    if (id.equals(turn)) state("Speaking", "يقرأ الرد");
+                }); }
                 public void onError(String id) { main.post(() -> { if (id.equals(turn)) fail("Speech failed", "تعذرت قراءة الرد"); }); }
                 public void onDone(String id) { main.post(() -> {
-                    if (active && id.equals(turn)) { turn = ""; main.postDelayed(listenAgain, 500); }
+                    if (active && id.equals(turn)) {
+                        state("Reply finished", "انتهت القراءة");
+                        turn = ""; main.postDelayed(listenAgain, 500);
+                    }
                 }); }
             });
             turn = "";
@@ -123,6 +134,7 @@ final class BrowserConversation implements RecognitionListener {
         ArrayList<String> words = b == null ? null : b.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
         if (words == null || words.isEmpty() || words.get(0).trim().isEmpty()) { main.postDelayed(listenAgain, 500); return; }
         String id = UUID.randomUUID().toString();
+        state("Waiting for answer", "ينتظر الإجابة");
         turn = id;
         String url = page.getUrl();
         if (url == null || !(url.startsWith("https://") || url.startsWith("http://"))) { stop(); return; }
@@ -174,7 +186,9 @@ final class BrowserConversation implements RecognitionListener {
             main.postDelayed(listenAgain, 650);
         else fail("Speech recognition stopped (" + code + ")", "توقف التعرف على الصوت (" + code + ")");
     }
-    public void onReadyForSpeech(Bundle b) {}
+    public void onReadyForSpeech(Bundle b) {
+        if (active && turn.isEmpty()) state("Listening", "يستمع");
+    }
     public void onBeginningOfSpeech() {}
     public void onEndOfSpeech() {}
     public void onPartialResults(Bundle b) {}
