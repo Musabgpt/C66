@@ -16,9 +16,18 @@ class Workflow(NamedTuple):
     provider: str = ""
 
 
-# These on-device adaptations use the published versions below. ClawHub lists them as MIT-0.
+# These on-device adaptations refer to the published versions below. The GitHub issue guide is independently written.
 # The Second Read package additionally includes the MIT license reproduced at the end of this file.
 WORKFLOWS = {
+    "github_repo_issues": Workflow(
+        "steipete/github", "1.0.0",
+        re.compile(r"\b(?:github issues|issues (?:on|in|for) (?:the )?(?:github|repository|repo))\b"
+                   r"|(?:تذاكر|مشكلات|قضايا) (?:مستودع|المستودع|جيت هب|غيت هب)", re.I),
+        "Use github_list_issues with the owner and repository from the request. If ambiguous, ask which "
+        "repository to inspect. Use the requested state and labels, and skip entries with a pull_request field. "
+        "Fetch further pages for the requested scope, including when a page contains only pull requests. "
+        "Show issue numbers, titles, states and links. If the request only checks connection status, "
+        "report that status without retrieving issues.", "github"),
     "drive_find_files": Workflow(
         "googleworkspace-bot/gws-drive", "1.0.13",
         re.compile(r"\b(?:google drive|find .* in my drive)\b|(?:جوجل درايف|غوغل درايف|ملفات درايف)", re.I),

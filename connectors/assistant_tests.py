@@ -509,12 +509,13 @@ class AssistantProfileTests(unittest.TestCase):
         self.assertEqual(task_note("What is the weather?"), "")
         self.assertIn("clawhub_search", lean.ASSISTANT)
 
-    def test_google_workflows_recheck_account_after_link_and_disconnect(self):
+    def test_service_workflows_recheck_account_after_link_and_disconnect(self):
         from . import clawhub_catalog, connectors
         for query, name, provider, operation in (
                 ("unread emails", "gmail_triage", "gmail", "gmail_search"),
                 ("جدول مواعيدي", "calendar_agenda", "calendar", "calendar_list"),
-                ("ملفات درايف", "drive_find_files", "drive", "drive_search")):
+                ("ملفات درايف", "drive_find_files", "drive", "drive_search"),
+                ("تذاكر المستودع", "github_repo_issues", "github", "github_list_issues")):
             self.assertIn(name, clawhub_catalog.task_note(query))
             for state in ("not_configured", "disconnected", "connected", "reauthorize"):
                 with mock.patch.object(connectors, "native", return_value={
@@ -531,9 +532,10 @@ class AssistantProfileTests(unittest.TestCase):
             self.assertIn(name, lean.ASSISTANT)
 
         with as_the_app():
-            for name in ("drive_search", "drive_read", "drive_export"):
+            for name in ("drive_search", "drive_read", "drive_export", "github_list_issues"):
                 self.assertTrue(lean.connector(name))
             self.assertFalse(lean.connector("drive_update"))
+            self.assertFalse(lean.connector("github_create_issue"))
         for name in ("bash", "read", "edit", "write", "glob", "grep", "github", "code_check", "runtime_exec",
                      "phone_power", "adb_connect", "toolchain_status"):
             self.assertNotIn(name, lean.ASSISTANT)
@@ -578,7 +580,7 @@ class AssistantProfileTests(unittest.TestCase):
             self.assertIn(needed, text)
         for gone_rule in ("show it and ask before publishing", "and ask (", "submit only when the user said to"):
             self.assertNotIn(gone_rule, text)
-        for gone in ("BusyBox", "GitHub", "bash", "code_check", "toolchain_status", "phone_power", "adb_connect",
+        for gone in ("BusyBox", "bash", "code_check", "toolchain_status", "phone_power", "adb_connect",
                      "AGENTS.md", "npm", "Building software"):
             self.assertNotIn(gone, text, gone)
         self.assertLess(len(text), 14500)                    # whole, but not a manual: every request carries it

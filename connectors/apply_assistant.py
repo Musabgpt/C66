@@ -37,7 +37,7 @@ ASSISTANT = (
     "scheduled_task_resume", "scheduled_task_delete",
 )
 ASSISTANT_PREFIXES = ("gmail_", "calendar_")
-ASSISTANT_SERVICES = ("gmail", "calendar", "drive")
+ASSISTANT_SERVICES = ("gmail", "calendar", "drive", "github")
 
 
 def assistant():
@@ -63,7 +63,7 @@ LEAN_CONNECTOR_OLD = '''def connector(name):
     return name.startswith(CONNECTOR_PREFIXES) and not name.startswith("connected_")
 '''
 LEAN_CONNECTOR_NEW = '''def connector(name):
-    if assistant() and name in ("drive_search", "drive_read", "drive_export"):
+    if assistant() and name in ("drive_search", "drive_read", "drive_export", "github_list_issues"):
         return True
     prefixes = ASSISTANT_PREFIXES if assistant() else CONNECTOR_PREFIXES
     return name.startswith(prefixes) and not name.startswith("connected_")
@@ -278,7 +278,7 @@ def apply(src, package, replace):
                             "    else:\n"
                             "        text = SMALL.format(steps=steps) if local else profile()\n", 1)
     policy.write_text(text, encoding="utf-8")
-    replace(policy, "MARKER = 'MusabAI behavior profile v17'", "MARKER = 'MusabAI behavior profile v21'")
+    replace(policy, "MARKER = 'MusabAI behavior profile v17'", "MARKER = 'MusabAI behavior profile v22'")
 
     # 6) The page: one screen. The developer interface's layers are no longer loaded (and are left out of the
     # app's package, see package_baseline.py).
