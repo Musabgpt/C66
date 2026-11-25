@@ -509,10 +509,31 @@ class AssistantProfileTests(unittest.TestCase):
         self.assertEqual(task_note("What is the weather?"), "")
         self.assertIn("clawhub_search", lean.ASSISTANT)
 
+    def test_google_workflows_recheck_account_after_link_and_disconnect(self):
+        from . import clawhub_catalog, connectors
+        for query, name, provider, operation in (
+                ("unread emails", "gmail_triage", "gmail", "gmail_search"),
+                ("جدول مواعيدي", "calendar_agenda", "calendar", "calendar_list"),
+                ("ملفات درايف", "drive_find_files", "drive", "drive_search")):
+            self.assertIn(name, clawhub_catalog.task_note(query))
+            for state in ("not_configured", "disconnected", "connected", "reauthorize"):
+                with mock.patch.object(connectors, "native", return_value={
+                        "connectors": [{"id": provider, "status": state}]}) as status:
+                    guide, meta = clawhub_catalog.workflow(None, name)
+                status.assert_called_once_with("status")
+                self.assertEqual(meta["connected"], state == "connected")
+                self.assertEqual(meta.get("link_required", False), state in ("disconnected", "reauthorize"))
+                self.assertEqual(operation in guide, state == "connected")
+
     def test_the_apps_tools_are_an_assistants(self):
         for name in ("phone", "phone_agent", "phone_routine", "browser", "browser_agent", "web_search", "my_info",
                      "learn", "scheduled_task_create"):
             self.assertIn(name, lean.ASSISTANT)
+
+        with as_the_app():
+            for name in ("drive_search", "drive_read", "drive_export"):
+                self.assertTrue(lean.connector(name))
+            self.assertFalse(lean.connector("drive_update"))
         for name in ("bash", "read", "edit", "write", "glob", "grep", "github", "code_check", "runtime_exec",
                      "phone_power", "adb_connect", "toolchain_status"):
             self.assertNotIn(name, lean.ASSISTANT)

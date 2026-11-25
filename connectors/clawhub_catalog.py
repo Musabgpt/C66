@@ -13,11 +13,36 @@ class Workflow(NamedTuple):
     version: str
     trigger: re.Pattern
     instructions: str
+    provider: str = ""
 
 
 # These on-device adaptations use the published versions below. ClawHub lists them as MIT-0.
 # The Second Read package additionally includes the MIT license reproduced at the end of this file.
 WORKFLOWS = {
+    "drive_find_files": Workflow(
+        "googleworkspace-bot/gws-drive", "1.0.13",
+        re.compile(r"\b(?:google drive|find .* in my drive)\b|(?:جوجل درايف|غوغل درايف|ملفات درايف)", re.I),
+        "Use drive_search on the linked Google Drive account to find matching accessible files. "
+        "Exclude trashed files and request fields for id, name, mimeType, webViewLink and nextPageToken. "
+        "Follow pagination for the requested scope. Return matching names and links. Read or export file content "
+        "only if the user requested its contents. Describe the results as files visible to this connection.", "drive"),
+    "gmail_triage": Workflow(
+        "googleworkspace-bot/gws-gmail-triage", "1.0.12",
+        re.compile(r"\b(?:triage (?:my )?(?:gmail|inbox)|unread (?:mail|emails?|messages? in gmail)|inbox summary)\b"
+                   r"|(?:ملخص بريدي|لخص (?:لي )?بريدي|الرسائل غير المقروءة|البريد غير المقروء)", re.I),
+        "Use gmail_search on the connected account. For an unread inbox summary use is:unread in:inbox "
+        "and the user's search constraints. Read metadata for the matching messages with gmail_read and give "
+        "the sender, subject and date. Keep the mailbox unchanged. Report an empty result only after a successful search.",
+        "gmail"),
+    "calendar_agenda": Workflow(
+        "googleworkspace-bot/gws-calendar-agenda", "1.0.13",
+        re.compile(r"\b(?:google calendar|calendar agenda|upcoming appointments|what.s on my calendar)\b"
+                   r"|(?:مواعيدي القادمة|جدول مواعيدي|تقويم جوجل|تقويم غوغل)", re.I),
+        "Use calendar_list for the user's requested calendar or primary for their own agenda. Set timeMin/timeMax "
+        "to the requested interval with an explicit timezone offset, singleEvents=true and orderBy=startTime. "
+        "Follow nextPageToken as needed. Show the calendar covered, local start times and all-day events. "
+        "For all calendars, establish which calendars are available first. Report any coverage limit.",
+        "calendar"),
     "meeting_minutes": Workflow(
         "youteacher/meeting-minutes-action-items", "1.2.0",
         re.compile(r"\b(?:meeting minutes|meeting summary|summari[sz]e (?:this |the )?meeting|meeting action items)\b"
@@ -74,7 +99,12 @@ def task_note(text):
     # Users can type Arabic with or without vowel marks and tatweel.
     text = "".join(c for c in unicodedata.normalize("NFC", text)
                    if not ("\u064b" <= c <= "\u065f" or c == "\u0640"))
-    return "\n".join(spec.instructions for spec in WORKFLOWS.values() if spec.trigger.search(text))
+    notes = []
+    for name, spec in WORKFLOWS.items():
+        if spec.trigger.search(text):
+            notes.append("Call clawhub_workflow with skill_id=" + name + " to check the linked account before using it."
+                         if spec.provider else spec.instructions)
+    return "\n".join(notes)
 
 
 @tools.tool("clawhub_workflow", "Load instructions for an installed workflow when its meaning fits the user's task.",
@@ -83,7 +113,23 @@ def workflow(ctx, skill_id):
     if not isinstance(skill_id, str) or skill_id not in WORKFLOWS:
         raise tools.ToolError("Unknown installed workflow. Choose one of: " + ", ".join(WORKFLOWS))
     spec = WORKFLOWS[skill_id]
-    return spec.instructions, {"workflow": skill_id, "source": spec.source, "version": spec.version}
+    meta = {"workflow": skill_id, "source": spec.source, "version": spec.version}
+    if spec.provider:
+        from . import connectors
+        try:
+            accounts = connectors.native("status")["connectors"]
+            state = next((a["status"] for a in accounts if a["id"] == spec.provider), "unavailable")
+        except Exception as exc:
+            raise tools.ToolError("Could not verify the account connection. Open the assistant's connection settings.") from exc
+        meta.update(provider=spec.provider, connected=state == "connected")
+        if state in ("not_configured", "unavailable"):
+            return ("This connection is unavailable in this installation. Report that " + connectors.CATALOG[spec.provider]
+                    + " needs a configured connector before the account can be linked."), meta
+        if not meta["connected"]:
+            meta["link_required"] = True
+            return ("This workflow requires a linked " + connectors.CATALOG[spec.provider]
+                    + " account. Ask the user to connect it in MusabAI Settings. No account data was read."), meta
+    return spec.instructions, meta
 
 
 @tools.tool("clawhub_search", "Find public OpenClaw skills by topic. Use generic keywords without private user data. Returns catalog identifiers only.",

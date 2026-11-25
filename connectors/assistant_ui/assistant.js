@@ -34,7 +34,7 @@
       me_note: "تبقى على هاتفك، ويقرؤها المساعد فقط عند تعبئة نموذج أو حجز.",
       f_name: "الاسم", f_email: "البريد الإلكتروني", f_phone: "رقم الهاتف", f_city: "المدينة", f_country: "الدولة",
       f_address: "العنوان", f_birth_date: "تاريخ الميلاد", f_nationality: "الجنسية", f_passport: "رقم الجواز",
-      gmail: "Gmail", calendar: "تقويم Google", approve_browser: "وافق في المتصفح ثم ارجع إلى التطبيق.",
+      gmail: "Gmail", calendar: "تقويم Google", drive: "Google Drive", approve_browser: "وافق في المتصفح ثم ارجع إلى التطبيق.",
       confirm: "اسألني قبل الإرسال والنشر", confirm_sub: "مطفأ: المساعد يرسل وينشر لوحده",
       bubble: "الزر العائم", bubble_sub: "المساعد فوق أي تطبيق",
       language: "اللغة", lang_auto: "لغة الهاتف", skills: "المهام التي أتقنها",
@@ -82,7 +82,7 @@
       me_note: "They stay on your phone; the assistant reads them only to fill a form or a booking.",
       f_name: "Name", f_email: "Email", f_phone: "Phone", f_city: "City", f_country: "Country",
       f_address: "Address", f_birth_date: "Date of birth", f_nationality: "Nationality", f_passport: "Passport number",
-      gmail: "Gmail", calendar: "Google Calendar", approve_browser: "Approve in the browser, then come back.",
+      gmail: "Gmail", calendar: "Google Calendar", drive: "Google Drive", approve_browser: "Approve in the browser, then come back.",
       confirm: "Ask me before sending or publishing", confirm_sub: "Off: the assistant sends and publishes on its own",
       bubble: "Floating button", bubble_sub: "The assistant over any app",
       language: "Language", lang_auto: "The phone's", skills: "Tasks I know by heart",
@@ -526,6 +526,13 @@
         if (L.byId[ev.id]) L.byId[ev.id].ok = !!ev.ok && !ev.denied;
         if (ev.name === "browser") { browserAt(L, ev.meta, ev.ok && !ev.denied); if (!replay) browserFrame(L); }
         if (ev.meta && ev.meta.file && ev.ok) fileCard(L, ev.meta.file);
+        if (ev.name === "clawhub_workflow" && ev.ok && ev.meta && ev.meta.link_required &&
+            ["gmail", "calendar", "drive"].indexOf(ev.meta.provider) >= 0) {
+          var accountButton = el("button", "btn small", t("connect") + " · " + t(ev.meta.provider));
+          accountButton.type = "button";
+          accountButton.onclick = openSettings;
+          L.box.appendChild(accountButton);
+        }
         if (!replay && S.busy) setDoing(t("thinking"));
         break;
       case "approval":
@@ -1040,10 +1047,10 @@
     api("/api/connectors").then(function (d) {
       var shown = 0;
       (d.connectors || []).forEach(function (c) {
-        if (c.id !== "gmail" && c.id !== "calendar") return;
+        if (["gmail", "calendar", "drive"].indexOf(c.id) < 0) return;
         shown++;
         var r3 = row(t(c.id));
-        if (c.status === "unavailable") { r3.appendChild(el("span", "state", t("unavailable"))); accounts.appendChild(r3); return; }
+        if (c.status === "unavailable" || c.status === "not_configured") { r3.appendChild(el("span", "state", t("unavailable"))); accounts.appendChild(r3); return; }
         var linked = c.status === "connected";
         if (linked) r3.appendChild(el("span", "state on", t("connected")));
         var b = el("button", "btn small" + (linked ? "" : " go"), t(linked ? "disconnect" : "connect"));
