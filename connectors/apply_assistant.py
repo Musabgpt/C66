@@ -278,7 +278,7 @@ def apply(src, package, replace):
                             "    else:\n"
                             "        text = SMALL.format(steps=steps) if local else profile()\n", 1)
     policy.write_text(text, encoding="utf-8")
-    replace(policy, "MARKER = 'MusabAI behavior profile v17'", "MARKER = 'MusabAI behavior profile v22'")
+    replace(policy, "MARKER = 'MusabAI behavior profile v17'", "MARKER = 'MusabAI behavior profile v23'")
 
     # 6) The page: one screen. The developer interface's layers are no longer loaded (and are left out of the
     # app's package, see package_baseline.py).

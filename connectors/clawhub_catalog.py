@@ -19,6 +19,31 @@ class Workflow(NamedTuple):
 # These on-device adaptations refer to the published versions below. The GitHub issue guide is independently written.
 # The Second Read package additionally includes the MIT license reproduced at the end of this file.
 WORKFLOWS = {
+    "travel_packing": Workflow(
+        "travel-skills/smart-packing-list", "1.0.19",
+        re.compile(r"\b(?:packing (?:list|checklist)|what (?:should I|to) pack)\b"
+                   r"|(?:قائمة (?:[أا]غراض السفر|السفر|ال[أا]متعة)|(?:ماذا|شو|[إا]يش) (?:[آا]خذ|[أا]حط) (?:معي|بالشنطة)"
+                   r"|(?:شنطة|حقيبة) (?:ال)?(?:سفر|رحلة))", re.I),
+        "Prepare a packing checklist for the stated place, duration, activities, travelers and baggage limits. "
+        "Use the weather tool when destination and dates allow a forecast and the user wants weather-sensitive advice. "
+        "Separate personal essentials, clothing quantities and activity-specific items. Mark items the traveler "
+        "already packed, and update the same list when they tell you what is in the bag."),
+    "rank_tasks": Workflow(
+        "ysskrishna/prioritization", "2026.11.15",
+        re.compile(r"\b(?:prioriti[sz]e (?:my |our |these )?(?:tasks|backlog)|rank (?:this |the )?backlog)\b"
+                   r"|رتبي? (?:لي )?(?:(?:ال)?[أا]ولويات(?:ي|نا)?|مهامي|المهام حسب ال[أا]ولوية)|ب[أا]ي مهمة [أا]بد[أا]", re.I),
+        "Rank the supplied work for the stated goal, time available and dependencies. Separate fixed deadlines "
+        "from preferences. Use impact versus effort when only qualitative data is available. For an explicitly "
+        "requested RICE score use reach times impact times confidence divided by effort, labeling missing inputs. "
+        "Show an ordered list with a reason for each choice and the cutoff that fits the available capacity."),
+    "cornell_notes": Workflow(
+        "goog/cornell-notes", "1.0.0",
+        re.compile(r"\b(?:cornell (?:method|notes?)|(?:lecture|class) notes in two columns)\b"
+                   r"|(?:ملاحظات|طريقة|أسلوب|نظام) كورنيل", re.I),
+        "Organize the supplied lecture or reading into Cornell notes. Pair a cue or recall question with "
+        "supporting notes from the source and finish with a short summary. Preserve significant terms and "
+        "examples. If the user asks to save the notes use file_create with a descriptive supported filename. "
+        "For a requested update to a saved note, read it before revising."),
     "github_repo_issues": Workflow(
         "steipete/github", "1.0.0",
         re.compile(r"\b(?:github issues|issues (?:on|in|for) (?:the )?(?:github|repository|repo))\b"
@@ -116,9 +141,19 @@ def task_note(text):
     return "\n".join(notes)
 
 
-@tools.tool("clawhub_workflow", "Load instructions for an installed workflow when its meaning fits the user's task.",
-            {"skill_id": {"type": "string", "enum": list(WORKFLOWS)}}, ["skill_id"], "read")
-def workflow(ctx, skill_id):
+BY_SOURCE = {spec.source: name for name, spec in WORKFLOWS.items()}
+
+
+@tools.tool("clawhub_workflow", "Omit skill_id to list the installed workflows offline. Load a matching workflow by "
+            "its local name or the exact owner/slug from ClawHub. Linked services check the current account.",
+            {"skill_id": tools._s("Exact publisher/skill or a local name: " + ", ".join(WORKFLOWS))}, [], "read")
+def workflow(ctx, skill_id=None):
+    if skill_id is None:
+        listing = [{"name": name, "source": spec.source, "version": spec.version, "provider": spec.provider or None}
+                   for name, spec in WORKFLOWS.items()]
+        return json.dumps(listing), {"count": len(listing)}
+    if isinstance(skill_id, str):
+        skill_id = BY_SOURCE.get(skill_id, skill_id)
     if not isinstance(skill_id, str) or skill_id not in WORKFLOWS:
         raise tools.ToolError("Unknown installed workflow. Choose one of: " + ", ".join(WORKFLOWS))
     spec = WORKFLOWS[skill_id]

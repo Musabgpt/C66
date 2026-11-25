@@ -509,6 +509,22 @@ class AssistantProfileTests(unittest.TestCase):
         self.assertEqual(task_note("What is the weather?"), "")
         self.assertIn("clawhub_search", lean.ASSISTANT)
 
+    def test_installed_workflow_discovery_and_qualified_lookup(self):
+        from . import clawhub_catalog as catalog
+        with mock.patch.object(catalog.tools, "_get", side_effect=AssertionError("unexpected network access")):
+            listing, meta = catalog.workflow(None)
+            rows = json.loads(listing)
+            self.assertEqual(meta["count"], len(catalog.WORKFLOWS))
+            self.assertEqual({r["name"] for r in rows}, set(catalog.WORKFLOWS))
+            for query, name in (("رَتِّب لي مهامي", "rank_tasks"), ("شو آخذ معي للرحلة؟", "travel_packing"),
+                                ("حول الدرس إلى ملاحظات كورنيل", "cornell_notes")):
+                source = next(r["source"] for r in rows if r["name"] == name)
+                instructions, data = catalog.workflow(None, source)
+                self.assertEqual(data["workflow"], name)
+                self.assertIn(instructions, catalog.task_note(query))
+            with self.assertRaises(catalog.tools.ToolError):
+                catalog.workflow(None, "different-author/prioritization")
+
     def test_service_workflows_recheck_account_after_link_and_disconnect(self):
         from . import clawhub_catalog, connectors
         for query, name, provider, operation in (
