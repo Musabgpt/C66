@@ -521,6 +521,8 @@ class AssistantProfileTests(unittest.TestCase):
                 source = next(r["source"] for r in rows if r["name"] == name)
                 instructions, data = catalog.workflow(None, source)
                 self.assertEqual(data["workflow"], name)
+                self.assertIn(source, instructions)
+                self.assertIn(data["version"], instructions)
                 self.assertIn(instructions, catalog.task_note(query))
             with self.assertRaises(catalog.tools.ToolError):
                 catalog.workflow(None, "different-author/prioritization")
@@ -538,6 +540,7 @@ class AssistantProfileTests(unittest.TestCase):
                         "connectors": [{"id": provider, "status": state}]}) as status:
                     guide, meta = clawhub_catalog.workflow(None, name)
                 status.assert_called_once_with("status")
+                self.assertIn(meta["version"], guide)
                 self.assertEqual(meta["connected"], state == "connected")
                 self.assertEqual(meta.get("link_required", False), state in ("disconnected", "reauthorize"))
                 self.assertEqual(operation in guide, state == "connected")

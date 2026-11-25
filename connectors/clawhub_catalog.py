@@ -15,6 +15,9 @@ class Workflow(NamedTuple):
     instructions: str
     provider: str = ""
 
+    def attributed(self, text):
+        return f"Installed ClawHub workflow {self.source} (version {self.version}).\n{text}"
+
 
 # These on-device adaptations refer to the published versions below. The GitHub issue guide is independently written.
 # The Second Read package additionally includes the MIT license reproduced at the end of this file.
@@ -35,7 +38,9 @@ WORKFLOWS = {
         "Rank the supplied work for the stated goal, time available and dependencies. Separate fixed deadlines "
         "from preferences. Use impact versus effort when only qualitative data is available. For an explicitly "
         "requested RICE score use reach times impact times confidence divided by effort, labeling missing inputs. "
-        "Show an ordered list with a reason for each choice and the cutoff that fits the available capacity."),
+        "Subtract the selected durations from the stated capacity to find the remaining time. Check that "
+        "selected minutes plus remaining minutes equal the original budget. Give the priority and reasons "
+        "in the user's requested format; include totals only when relevant."),
     "cornell_notes": Workflow(
         "goog/cornell-notes", "1.0.0",
         re.compile(r"\b(?:cornell (?:method|notes?)|(?:lecture|class) notes in two columns)\b"
@@ -137,7 +142,7 @@ def task_note(text):
     for name, spec in WORKFLOWS.items():
         if spec.trigger.search(text):
             notes.append("Call clawhub_workflow with skill_id=" + name + " to check the linked account before using it."
-                         if spec.provider else spec.instructions)
+                         if spec.provider else spec.attributed(spec.instructions))
     return "\n".join(notes)
 
 
@@ -167,13 +172,13 @@ def workflow(ctx, skill_id=None):
             raise tools.ToolError("Could not verify the account connection. Open the assistant's connection settings.") from exc
         meta.update(provider=spec.provider, connected=state == "connected")
         if state in ("not_configured", "unavailable"):
-            return ("This connection is unavailable in this installation. Report that " + connectors.CATALOG[spec.provider]
-                    + " needs a configured connector before the account can be linked."), meta
+            return spec.attributed("This connection is unavailable in this installation. Report that " + connectors.CATALOG[spec.provider]
+                                   + " needs a configured connector before the account can be linked."), meta
         if not meta["connected"]:
             meta["link_required"] = True
-            return ("This workflow requires a linked " + connectors.CATALOG[spec.provider]
-                    + " account. Ask the user to connect it in MusabAI Settings. No account data was read."), meta
-    return spec.instructions, meta
+            return spec.attributed("This workflow requires a linked " + connectors.CATALOG[spec.provider]
+                                   + " account. Ask the user to connect it in MusabAI Settings. No account data was read."), meta
+    return spec.attributed(spec.instructions), meta
 
 
 @tools.tool("clawhub_search", "Find public OpenClaw skills by topic. Use generic keywords without private user data. Returns catalog identifiers only.",
